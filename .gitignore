@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+node_modules/
+frontend/dist/
+
+# Patient data and derived artifacts must never be committed.
+data/
+!data/.gitkeep
+backend/checkpoints/
+*.nii
+*.nii.gz
+*.db
+
+.env
+.DS_Store
+
+# Upstream clone used as a reference while porting the renderer. The model and
+# Draco decoder that the app actually serves live in frontend/public/ and ARE
+# committed; this full checkout is not needed to build or run.
+vendor/brainproject-src/

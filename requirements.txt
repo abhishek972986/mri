@@ -1,0 +1,26 @@
+# Core pipeline + API. Python 3.11+.
+numpy>=1.26
+scipy>=1.11
+scikit-image>=0.22
+nibabel>=5.2
+
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+sqlmodel>=0.0.22
+pydantic-settings>=2.4
+
+# Tests
+pytest>=8.0
+httpx>=0.27
+
+# --- optional -----------------------------------------------------------------
+# PyTorch: needed only to TRAIN or RUN a segmentation model. The API runs without
+# it, using the classical fallback detector. Install the build matching your CUDA
+# version rather than the default CPU wheel:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+# torch>=2.4
+#
+# SimpleITK: faster and better-tested registration and N4 bias correction. The
+# pipeline detects it automatically and falls back to the numpy implementation.
+# SimpleITK>=2.3
