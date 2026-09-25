@@ -1,0 +1,352 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Tailwind's preflight is disabled (see tailwind.config.js) because the dark
+ * clinical dashboard in this same bundle styles bare elements globally. A
+ * global reset landing on top of it would restyle the dashboard too, so the
+ * landing page declares what it needs from a reset here, scoped to .nv-root.
+ *
+ * Two cascade constraints shape how these are written, and both matter:
+ *
+ *  - They must outrank src/styles.css, which sets things like
+ *    `h2 { text-transform: uppercase }` and `button { background: … }` at
+ *    element specificity (0,0,1). Scoping under `.nv-root` clears that.
+ *  - They must NOT outrank Tailwind's own utilities, which are single classes
+ *    at (0,1,0). Hence `:where()` around the element lists — it contributes
+ *    nothing to specificity, so these rules land at exactly (0,1,0) and lose
+ *    the tie to utilities, which Tailwind emits later in the file.
+ *
+ * Declaring them inside `@layer base` is what guarantees that ordering:
+ * Tailwind hoists the block to the `@tailwind base` position at build time.
+ */
+@layer base {
+  .nv-root {
+    --nv-blue: #1677e8;
+    --nv-ink: #0d1424;
+
+    position: relative;
+    min-height: 100vh;
+    /* The background washes are wider than a phone. `clip` trims them without
+       making this a scroll container, which `hidden` would — and a scroll
+       container here would stop the sticky navbar from sticking. */
+    overflow-x: hidden;
+    overflow-x: clip;
+    color: var(--nv-ink);
+    background: #f7faff;
+    font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+
+  /*
+   * A faint fractal-noise layer over the page wash. At ~2.5% it is not
+   * visible as grain; it just stops the large gradients from looking flat
+   * and banding on wide screens.
+   */
+  .nv-root::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -10;
+    pointer-events: none;
+    opacity: 0.025;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.06 0 0 0 0 0.15 0 0 0 0 0.3 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /*
+   * Preflight normally gives every element a solid, zero-width border, and
+   * that default is what makes `border`, `border-l` and friends draw anything
+   * at all — those utilities set a width, not a style. With preflight off the
+   * width lands against `border-style: none` and no line appears, so every
+   * card outline and divider on the page silently renders as nothing.
+   */
+  .nv-root *,
+  .nv-root *::before,
+  .nv-root *::after {
+    border-width: 0;
+    border-style: solid;
+    border-color: #e6edf8;
+  }
+
+  .nv-root :where(h1, h2, h3, h4, h5, h6) {
+    margin: 0;
+    font-family: theme('fontFamily.display');
+    font-size: inherit;
+    font-weight: inherit;
+    line-height: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+    text-transform: none;
+  }
+
+  .nv-root :where(p, ul, ol, figure) {
+    margin: 0;
+    padding: 0;
+  }
+
+  .nv-root :where(ul, ol) {
+    list-style: none;
+  }
+
+  .nv-root :where(a) {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .nv-root :where(button) {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    line-height: inherit;
+    cursor: pointer;
+    transition: none;
+  }
+
+  /* styles.css repaints buttons on hover at `button:hover:not(:disabled)`
+     — (0,2,1), which outranks a plain (0,1,0) reset. This needs the extra
+     weight to cancel it. Keep it in mind if a `hover:bg-*` utility is ever
+     added to a button here: it would need `!` to win against this. */
+  .nv-root :where(button):hover:not(:disabled) {
+    background: none;
+    border-color: transparent;
+  }
+
+  .nv-root :where(img, video, svg) {
+    display: block;
+    max-width: 100%;
+  }
+}
+
+/*
+ * The page gutter. Every section's outer wrapper carries this, and its inner
+ * box carries `max-w-shell`, so content lines up on one edge at every width
+ * and stops growing past 1440px while the backgrounds keep going.
+ *
+ * In `components` so a utility (`px-0`, say) can still override it.
+ */
+@layer components {
+  .nv-gutter {
+    padding-inline: 16px;
+  }
+  @media (min-width: 400px) {
+    .nv-gutter { padding-inline: 20px; }
+  }
+  @media (min-width: 768px) {
+    .nv-gutter { padding-inline: 32px; }
+  }
+  @media (min-width: 1024px) {
+    .nv-gutter { padding-inline: 40px; }
+  }
+  @media (min-width: 1280px) {
+    .nv-gutter { padding-inline: 48px; }
+  }
+  @media (min-width: 1536px) {
+    .nv-gutter { padding-inline: 56px; }
+  }
+}
+
+/*
+ * Buttons (see components/Button.jsx). Motion — lift, press, the arrow — is
+ * framer's; this owns the surface: fill, border, inner highlight, shadow.
+ *
+ * Selectors carry `.nv-root` and a `:hover:not(:disabled)` twin on purpose:
+ * the reset above clears button backgrounds at `.nv-root button:hover:not(
+ * :disabled)` weight (it has to, to cancel the dashboard's global hover), and
+ * anything lighter than that would lose its fill on hover.
+ */
+@layer components {
+  .nv-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    white-space: nowrap;
+    border-radius: 9999px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    -webkit-tap-highlight-color: transparent;
+    will-change: transform;
+    transition:
+      box-shadow 450ms cubic-bezier(0.16, 1, 0.3, 1),
+      border-color 250ms cubic-bezier(0.16, 1, 0.3, 1),
+      background-color 250ms cubic-bezier(0.16, 1, 0.3, 1),
+      filter 250ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .nv-root .nv-btn-primary,
+  .nv-root .nv-btn-primary:hover:not(:disabled) {
+    color: #fff;
+    border: 1px solid rgba(11, 79, 196, 0.55);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0) 52%),
+      linear-gradient(180deg, #2a86f0 0%, #1677e8 55%, #1169d6 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 1px 2px rgba(11, 79, 196, 0.22),
+      0 6px 16px rgba(22, 119, 232, 0.22),
+      0 16px 32px rgba(22, 119, 232, 0.12);
+  }
+  @media (hover: hover) {
+    .nv-root .nv-btn-primary:hover:not(:disabled) {
+      border-color: rgba(11, 79, 196, 0.7);
+      filter: saturate(1.06) brightness(1.03);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.26),
+        0 1px 2px rgba(11, 79, 196, 0.2),
+        0 10px 24px rgba(22, 119, 232, 0.26),
+        0 24px 44px rgba(22, 119, 232, 0.16);
+    }
+  }
+
+  .nv-root .nv-btn-secondary,
+  .nv-root .nv-btn-secondary:hover:not(:disabled) {
+    color: #0d1424;
+    border: 1px solid rgba(22, 119, 232, 0.2);
+    background: linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
+    box-shadow:
+      inset 0 1px 0 #fff,
+      0 1px 2px rgba(16, 38, 76, 0.05),
+      0 6px 16px rgba(16, 38, 76, 0.05);
+  }
+  @media (hover: hover) {
+    .nv-root .nv-btn-secondary:hover:not(:disabled) {
+      border-color: rgba(22, 119, 232, 0.34);
+      background: linear-gradient(180deg, #ffffff 0%, #eef5ff 100%);
+      box-shadow:
+        inset 0 1px 0 #fff,
+        0 1px 2px rgba(16, 38, 76, 0.05),
+        0 10px 26px rgba(16, 38, 76, 0.08);
+    }
+  }
+
+  .nv-btn:focus-visible {
+    outline: 2px solid #1677e8;
+    outline-offset: 3px;
+  }
+
+  /*
+   * Cards that lift on hover (framer moves them; this deepens the shadow as
+   * they rise, so the lift reads as distance from the page).
+   */
+  .nv-lift {
+    transition: box-shadow 550ms cubic-bezier(0.16, 1, 0.3, 1), border-color 400ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @media (hover: hover) {
+    .nv-lift:hover {
+      box-shadow: theme('boxShadow.card-hover');
+    }
+  }
+}
+
+/* Copy that differs between mouse and touch ("Click and drag" vs "Drag"). */
+.nv-touch-only {
+  display: none;
+}
+@media (pointer: coarse) {
+  .nv-touch-only { display: inline; }
+  .nv-fine-only { display: none; }
+}
+
+/*
+ * The brain render is a light-background PNG. `multiply` drops its near-white
+ * field into the page wash so it reads as part of the layout rather than as a
+ * pasted rectangle; the mask fades the remaining edges out entirely.
+ */
+.nv-brain-media {
+  mix-blend-mode: multiply;
+  -webkit-mask-image: radial-gradient(ellipse 72% 68% at 50% 46%, #000 52%, rgba(0, 0, 0, 0.72) 68%, transparent 88%);
+  mask-image: radial-gradient(ellipse 72% 68% at 50% 46%, #000 52%, rgba(0, 0, 0, 0.72) 68%, transparent 88%);
+}
+
+/* The float, haze and orbit loops are decoration — none of them carry
+   information, so a reduced-motion preference switches them all off. */
+@media (prefers-reduced-motion: reduce) {
+  .nv-root *,
+  .nv-root *::before,
+  .nv-root *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* The For Doctors illustration is a full rectangular scene. Stacked under the
+   text (below lg) nothing overlaps it, so only a thin rim is feathered — the
+   report tablet and the AI panel sit near the edges and must stay whole. */
+.nv-doctor-media {
+  -webkit-mask-image:
+    linear-gradient(90deg, transparent 0, #000 5%, #000 95%, transparent 100%),
+    linear-gradient(180deg, transparent 0, #000 6%, #000 94%, transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(90deg, transparent 0, #000 5%, #000 95%, transparent 100%),
+    linear-gradient(180deg, transparent 0, #000 6%, #000 94%, transparent 100%);
+  mask-composite: intersect;
+}
+
+/* From lg the text column overlaps the illustration's left side, so the mask
+   feathers all four edges into the page — weighted to the right so the
+   overlapped edge fades first. */
+@media (min-width: 1024px) {
+  .nv-doctor-media {
+    -webkit-mask-image: radial-gradient(ellipse 74% 76% at 58% 48%, #000 56%, rgba(0, 0, 0, 0.7) 76%, transparent 95%);
+    -webkit-mask-composite: source-over;
+    mask-image: radial-gradient(ellipse 74% 76% at 58% 48%, #000 56%, rgba(0, 0, 0, 0.7) 76%, transparent 95%);
+    mask-composite: add;
+  }
+}
+
+/*
+ * A white halo for text that sits over artwork. It is invisible against the
+ * page's own near-white background, so it can be applied to the whole column
+ * rather than guessing which lines will overlap at a given viewport width.
+ */
+.nv-text-halo,
+.nv-text-halo * {
+  text-shadow:
+    0 0 3px #fff,
+    0 0 7px #fff,
+    0 0 16px rgba(255, 255, 255, 0.95),
+    0 0 30px rgba(255, 255, 255, 0.8);
+}
+
+/* Buttons carry their own solid fill; a white glow on a white label just
+   blurs it. */
+.nv-text-halo button,
+.nv-text-halo button * {
+  text-shadow: none;
+}
+
+/* The CTA doctor is a crop, so its backdrop is close to the banner's but not
+   identical and the cut shows as a faint rectangle. Feathering the edges
+   dissolves the seam without touching the figure itself. */
+.nv-cta-media {
+  -webkit-mask-image: radial-gradient(ellipse 86% 118% at 30% 56%, #000 54%, rgba(0, 0, 0, 0.88) 72%, transparent 97%);
+  mask-image: radial-gradient(ellipse 86% 118% at 30% 56%, #000 54%, rgba(0, 0, 0, 0.88) 72%, transparent 97%);
+}
+
+/* Centred on a phone, the crop needs a centred feather too. */
+@media (max-width: 767px) {
+  .nv-cta-media {
+    -webkit-mask-image: radial-gradient(ellipse 70% 100% at 50% 50%, #000 58%, rgba(0, 0, 0, 0.85) 76%, transparent 98%);
+    mask-image: radial-gradient(ellipse 70% 100% at 50% 50%, #000 58%, rgba(0, 0, 0, 0.85) 76%, transparent 98%);
+  }
+}
+
+/* Landscape phones: short screens should not spend half their height on
+   section padding before any content appears. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .nv-root section[id] {
+    padding-top: 2.5rem;
+  }
+}
