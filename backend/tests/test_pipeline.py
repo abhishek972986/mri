@@ -351,30 +351,85 @@ def test_report_always_carries_the_disclaimer(processed):
 
 
 def test_report_on_a_negative_study_does_not_claim_exclusion():
-    """A negative result must not be phrased as ruling TB out."""
+    """A negative result must not be phrased as ruling pathology out."""
     empty_burden = quantify.summarize([], np.ones((32, 32, 32), bool), 1.0)
     built = report.build_report([], empty_burden, "unet", ["FLAIR", "T1C"], calibrated=True)
 
     assert "does not exclude" in built.impression
-    assert built.confidence["tb_pattern_score"] == 0.0
+    assert built.text_version == report.REPORT_TEXT_VERSION
 
 
-def test_tb_pattern_score_rewards_typical_sites():
-    """Lesions in TB-predilection sites should score above lesions elsewhere."""
+GLIOMA_PROVENANCE = {"pathology": "adult diffuse glioma (BraTS 2024, FLAIR)", "trained_on": "brats2024-glioma"}
+
+
+def _two_lesion_report(provenance=GLIOMA_PROVENANCE):
     shape = (100, 100, 100)
     brain = np.ones(shape, dtype=bool)
     volume = Volume(np.ones(shape, dtype=np.float32), np.eye(4))
+    mask = _lesion_at((40, 25, 20), 5, shape) | _lesion_at((60, 70, 60), 6, shape)
+    lesions, burden = quantify.quantify(volume, mask, None, brain)
+    return report.build_report(lesions, burden, "unet", ["FLAIR"], provenance=provenance)
 
-    def score_for(mask):
-        lesions, burden = quantify.quantify(volume, mask, None, brain)
-        return report.build_report(lesions, burden, "unet", ["T1C"]).confidence["tb_pattern_score"]
 
-    # Two lesions low and posterior (cerebellum/brainstem zone) versus two high
-    # and anterior (frontal convexity).
-    typical = _lesion_at((40, 25, 20), 5, shape) | _lesion_at((60, 25, 20), 5, shape)
-    atypical = _lesion_at((30, 85, 80), 5, shape) | _lesion_at((70, 85, 80), 5, shape)
+def test_report_never_names_a_disease_the_model_cannot_identify():
+    """The model is a glioma-trained segmenter: no text may claim or suggest tuberculosis."""
+    import json
 
-    assert score_for(typical) > score_for(atypical)
+    text = json.dumps(_two_lesion_report().to_dict()).lower()
+    assert "tubercul" not in text
+    assert "tb_" not in text
+    assert "compatible with" not in text
+
+
+def test_report_states_the_model_scope_first():
+    built = _two_lesion_report()
+    assert "adult diffuse glioma" in built.limitations[0]
+    assert "does not identify what a" in built.limitations[0]
+    assert "does not determine the nature" in built.impression
+
+
+def test_legacy_report_text_is_regenerated_from_its_measurements():
+    """Version-1 reports carried TB wording; serving them must not repeat it."""
+    import json
+
+    current = _two_lesion_report().to_dict()
+    legacy = {
+        **current,
+        "text_version": None,
+        "headline": "2 focal lesions detected, with a distribution compatible with intracranial tuberculosis.",
+        "impression": "Multifocal lesions with features described in intracranial tuberculosis.",
+        "disclaimer": "... cannot establish a diagnosis of central nervous system tuberculosis ...",
+        "confidence": {**current["confidence"], "tb_pattern_score": 0.7, "tb_pattern_label": "moderate",
+                       "tb_pattern_reasons": ["involvement of sites with TB predilection"]},
+        "lesions": [{**l, "tb_typical_site": True} for l in current["lesions"]],
+        "technique": {**current["technique"], "segmentation_notes": [
+            "Classical blob detector, not a trained diagnostic model. It flags focal hyperintense "
+            "foci of plausible size and cannot distinguish tuberculomas from other focal lesions.",
+            "These weights have never seen a tuberculoma. They segment focal brain lesions.",
+            "Checkpoint: unet3d_brats.pt",
+        ]},
+    }
+    legacy.pop("text_version")
+
+    served = report.normalize_report(legacy)
+    text = json.dumps(served).lower()
+    assert "tubercul" not in text and "tb_" not in text
+    assert served["text_version"] == report.REPORT_TEXT_VERSION
+    assert served["text_regenerated_from"] == 1
+    # Disease-specific notes are replaced or dropped; neutral ones survive.
+    assert "Checkpoint: unet3d_brats.pt" in served["technique"]["segmentation_notes"]
+    assert len(served["technique"]["segmentation_notes"]) == 2
+    # Measurements are untouched; only wording changes.
+    assert served["burden"] == current["burden"]
+    assert [l["volume_cm3"] for l in served["lesions"]] == [l["volume_cm3"] for l in current["lesions"]]
+
+
+def test_legacy_comparison_alert_is_normalized():
+    stored = {"alerts": [{"type": "mixed_response", "severity": "medium",
+                          "message": "Mixed response ... In treated CNS tuberculosis this can represent a paradoxical reaction."}]}
+    served = compare.normalize_result(stored)
+    assert "tubercul" not in served["alerts"][0]["message"].lower()
+    assert served["alerts"][0]["type"] == "mixed_response"
 
 
 # --- meshing ---------------------------------------------------------------

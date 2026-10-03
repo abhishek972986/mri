@@ -2,6 +2,12 @@
 
 What is missing, in the order it matters. Items are grouped by what they block.
 
+> **History.** This roadmap was written for NeuroTB, the tuberculosis-focused
+> prototype this project grew from, and its clinical items are framed around
+> CNS TB. The application now ships a glioma-trained lesion segmenter and makes
+> no tuberculosis claims (see the README). The TB items describe a possible
+> future direction that would need its own labelled data and validation.
+
 ---
 
 ## Blocking any use on real patient data

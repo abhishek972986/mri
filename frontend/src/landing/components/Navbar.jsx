@@ -4,16 +4,14 @@ import { useEffect, useRef, useState } from 'react';
 import { EASE } from '../motion';
 import Button from './Button';
 
-/* Home, Features, How It Works and For Doctors are sections of the one
-   landing page, so these are anchors rather than routes. The rest are
-   placeholders and point at the top of the page rather than navigating. */
+/* Every item is a section of the one landing page, so these are anchors
+   rather than routes (/features, /about etc. also scroll to them). */
 const LINKS = [
   { label: 'Home', href: '#top' },
   { label: 'Features', href: '#features' },
   { label: 'How It Works', href: '#how-it-works' },
   { label: 'For Doctors', href: '#for-doctors' },
-  { label: 'About', href: '#top' },
-  { label: 'Contact', href: '#top' },
+  { label: 'About', href: '#about' },
 ];
 
 const MENU_ID = 'nv-mobile-menu';
@@ -38,7 +36,7 @@ function MenuGlyph({ open }) {
  * Floating navigation bar. It sits on the page rather than spanning it edge to
  * edge, which is what keeps the top of the layout feeling light.
  *
- * The six links need about 1024px beside the logo and the button before they
+ * The five links need about 1024px beside the logo and the button before they
  * start to crowd each other, so below lg they fold into a menu. Get Started
  * stays in the bar on a tablet, where there is room for it beside the menu
  * button, and moves into the menu on a phone.

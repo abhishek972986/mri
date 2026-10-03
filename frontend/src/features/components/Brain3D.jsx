@@ -315,6 +315,22 @@ function Rig({ still }) {
 }
 
 /**
+ * Whether an element is in (or near) the viewport. The specimen keeps a render
+ * loop running at full rate, so once the page has scrolled on it should stop
+ * spending GPU time on a canvas nobody can see.
+ */
+function useOnScreen(element) {
+  const [onScreen, setOnScreen] = useState(true);
+  useEffect(() => {
+    if (!element || typeof IntersectionObserver === 'undefined') return undefined;
+    const observer = new IntersectionObserver(([entry]) => setOnScreen(entry.isIntersecting), { rootMargin: '15% 0px' });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element]);
+  return onScreen;
+}
+
+/**
  * The interactive specimen: drag to rotate.
  *
  * Pan is always off, and so is zoom with a mouse: a wheel over the canvas
@@ -333,6 +349,8 @@ export default function Brain3D({ regionKey, onAnchors, onLoaded }) {
   const coarse = useCoarsePointer();
   const [extents, setExtents] = useState(null);
   const { atlas, progress, error } = useAtlas();
+  const [canvas, setCanvas] = useState(null);
+  const onScreen = useOnScreen(canvas);
 
   useEffect(() => {
     if (atlas && onLoaded) onLoaded(true);
@@ -342,10 +360,13 @@ export default function Brain3D({ regionKey, onAnchors, onLoaded }) {
     <>
     <Canvas
       className="!absolute inset-0"
+      /* Nothing is drawn while the specimen is scrolled out of view. */
+      frameloop={onScreen ? 'always' : 'never'}
       dpr={compact ? [1, 1.5] : [1, 2]}
       camera={{ position: [0.2, 0.55, 4.4], fov: 34, near: 0.1, far: 100 }}
       gl={{ antialias: true, alpha: true, preserveDrawingBuffer: false }}
       onCreated={({ gl }) => {
+        setCanvas(gl.domElement);
         gl.toneMapping = THREE.ACESFilmicToneMapping;
         gl.toneMappingExposure = 1.12;
       }}

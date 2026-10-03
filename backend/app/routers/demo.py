@@ -16,10 +16,11 @@ from sqlmodel import Session
 
 from ..config import settings
 from ..db import get_session
-from ..models import Patient, Study
+from ..models import Doctor, Patient, Study
 from ..pipeline import synth
 from ..pipeline.volume import save_volume
 from ..schemas import DemoRequest
+from ..services import auth
 from .analyses import _execute_analysis
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ router = APIRouter(prefix="/api/demo", tags=["demo"])
 def seed_demo(
     payload: DemoRequest,
     background: BackgroundTasks,
+    doctor: Doctor = Depends(auth.current_doctor),
     session: Session = Depends(get_session),
 ) -> dict:
     """Generate a synthetic longitudinal pair, store it, and queue both analyses."""
@@ -42,6 +44,7 @@ def seed_demo(
     )
 
     patient = Patient(
+        doctor_id=doctor.id,
         label=payload.label or f"SYNTHETIC demo ({payload.response})",
         sex="unspecified",
         age_years=34,

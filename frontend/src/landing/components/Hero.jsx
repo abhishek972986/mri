@@ -49,8 +49,8 @@ export default function Hero({ videoSrc }) {
           variants={fadeUp}
           className="mt-5 max-w-[46ch] text-[15px] leading-relaxed text-ink-soft lg:text-[15.5px]"
         >
-          NeuroVision AI uses advanced AI to analyze brain MRI scans, detect abnormalities, and
-          visualize affected regions in 3D — helping doctors make faster, more accurate decisions.
+          NeuroVision AI uses AI segmentation to highlight abnormal regions in brain MRI scans,
+          measure them, and visualize them in 3D — supporting the doctor&apos;s review, not replacing it.
         </motion.p>
       </div>
 

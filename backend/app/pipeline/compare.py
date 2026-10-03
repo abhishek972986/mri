@@ -302,8 +302,8 @@ def _build_alerts(
                 "severity": "high",
                 "type": "new_lesion",
                 "message": (
-                    f"New lesion in the {change.side} {change.region} "
-                    f"({change.followup_volume_cm3:.2f} cm3) not present on the prior study."
+                    f"New segmented region in the {change.side} {change.region} "
+                    f"({change.followup_volume_cm3:.2f} cm3), not segmented on the prior study."
                 ),
             })
         elif change.status == "increased" and (change.volume_change_percent or 0) > 50:
@@ -311,8 +311,8 @@ def _build_alerts(
                 "severity": "high",
                 "type": "enlarging_lesion",
                 "message": (
-                    f"Lesion in the {change.side} {change.region} enlarged by "
-                    f"{change.volume_change_percent:.0f}% "
+                    f"Segmented region in the {change.side} {change.region} is "
+                    f"{change.volume_change_percent:.0f}% larger "
                     f"({change.baseline_volume_cm3:.2f} -> {change.followup_volume_cm3:.2f} cm3)."
                 ),
             })
@@ -321,22 +321,17 @@ def _build_alerts(
         alerts.append({
             "severity": "info",
             "type": "complete_resolution",
-            "message": "No lesions detected on the current study; all previously detected lesions have resolved.",
+            "message": "No region is segmented on the current study; none of the previously segmented regions is marked.",
         })
 
-    # Paradoxical reaction: a recognised phenomenon in treated CNS TB, where
-    # lesions transiently enlarge despite effective therapy. Worth naming so it
-    # is not read as treatment failure.
+    # Opposite changes in one study pair are worth flagging on their own: the
+    # net volume can hide them, and they need reading region by region.
     if any(c.status in ("new", "increased") for c in changes) and \
        any(c.status in ("decreased", "resolved") for c in changes):
         alerts.append({
             "severity": "medium",
             "type": "mixed_response",
-            "message": (
-                "Mixed response: some lesions regressing while others are new or enlarging. "
-                "In treated CNS tuberculosis this can represent a paradoxical reaction rather "
-                "than treatment failure. Clinical correlation required."
-            ),
+            "message": _MIXED_CHANGE_MESSAGE,
         })
 
     if registration_info:
@@ -359,3 +354,24 @@ def _dice(a: np.ndarray, b: np.ndarray) -> float:
     if total == 0:
         return 0.0
     return float(2.0 * np.logical_and(a, b).sum() / total)
+
+
+# Alert text written by earlier versions that interpreted change in terms of a
+# specific disease (tuberculosis). Replaced when a stored comparison is served.
+_MIXED_CHANGE_MESSAGE = (
+    "Mixed change: some segmented regions are smaller or no longer marked while "
+    "others are new or larger. Review each region on the source images; the net "
+    "volume change alone does not describe this study pair."
+)
+
+
+def normalize_result(result: dict | None) -> dict | None:
+    """A stored comparison result with current alert wording (nothing is rewritten on disk)."""
+    if not result or not result.get("alerts"):
+        return result
+    alerts = []
+    for alert in result["alerts"]:
+        if alert.get("type") == "mixed_response" and "tubercul" in (alert.get("message") or "").lower():
+            alert = {**alert, "message": _MIXED_CHANGE_MESSAGE}
+        alerts.append(alert)
+    return {**result, "alerts": alerts}

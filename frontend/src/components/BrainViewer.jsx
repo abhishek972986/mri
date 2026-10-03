@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import {
   ATTRIBUTION,
@@ -33,7 +33,6 @@ import {
  */
 
 const LESION_COLOR = 0xff4d4d;
-const LESION_TB_COLOR = 0xffb347;
 const SELECTED_COLOR = 0x4dd4ff;
 
 const CHANGE_COLORS = {
@@ -43,6 +42,15 @@ const CHANGE_COLORS = {
 };
 
 function buildGeometry(mesh) {
+  // Reject malformed surfaces up front: a bad index buffer would otherwise
+  // crash WebGL mid-frame and blank the whole viewer.
+  const positions = mesh?.positions;
+  const indices = mesh?.indices ?? [];
+  if (!Array.isArray(positions) || positions.length % 3 !== 0) throw new Error('Mesh has no valid vertex positions.');
+  const vertexCount = positions.length / 3;
+  for (let i = 0; i < indices.length; i += 1) {
+    if (!(indices[i] >= 0 && indices[i] < vertexCount)) throw new Error('Mesh references a vertex that does not exist.');
+  }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(mesh.positions, 3));
   if (mesh.normals?.length === mesh.positions.length) {
@@ -54,7 +62,13 @@ function buildGeometry(mesh) {
   return geometry;
 }
 
-export default function BrainViewer({
+/*
+ * Imperative handle (via ref), for the clinical viewer's toolbar:
+ *   resetView()    back to the default three-quarter view
+ *   zoom(factor)   <1 zooms in, >1 out -- the touch-screen alternative to the wheel
+ *   capture()      PNG data URL of the current frame, for the report snapshot
+ */
+const BrainViewer = forwardRef(function BrainViewer({
   scene: scenePayload,
   mode = 'single',
   selectedLesionId = null,
@@ -63,20 +77,34 @@ export default function BrainViewer({
   brainOpacity = 1.0,
   visibleCategories = null,
   visibleChangeLayers = { new: true, resolved: true, persistent: true },
-}) {
+  showBrain = true,
+  showLesions = true,
+  wireframe = false,
+  showFooter = true,
+}, ref) {
   const mountRef = useRef(null);
   const stateRef = useRef(null);
   const [hovered, setHovered] = useState(null);
   const [atlasState, setAtlasState] = useState({ status: 'idle', progress: 0, error: null });
+  const [webglError, setWebglError] = useState(null);
+  const [sceneError, setSceneError] = useState(null);
 
   // --- renderer, camera, controls: created once ---------------------------
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return undefined;
 
-    const renderer = new THREE.WebGLRenderer({
-      antialias: true, alpha: true, powerPreference: 'high-performance',
-    });
+    // No WebGL (disabled, blocklisted GPU, remote desktop) must be a message,
+    // not a blank box.
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        antialias: true, alpha: true, powerPreference: 'high-performance',
+      });
+    } catch (error) {
+      setWebglError(error?.message || 'WebGL is not available');
+      return undefined;
+    }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     applyRendererSettings(renderer);          // their tone mapping and exposure
@@ -112,15 +140,43 @@ export default function BrainViewer({
     };
     stateRef.current = state;
 
+    /*
+     * Gestures. One pointer rotates (or pans with the right button / Shift);
+     * two pointers pinch to zoom and move together to pan. A press that barely
+     * moves is a click, which selects the lesion under it.
+     */
+    const pointers = new Map();
     let dragging = false;
     let moved = 0;
+    let mode = 'rotate';
     let last = { x: 0, y: 0 };
+    let pinch = null;
+
+    const midpoint = () => {
+      const [a, b] = [...pointers.values()];
+      return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, dist: Math.hypot(a.x - b.x, a.y - b.y) };
+    };
+
+    const pan = (dx, dy) => {
+      // Move the orbit target in the camera's own screen plane.
+      const scale = state.orbit.radius * 0.0016;
+      const right = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
+      const up = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
+      state.target.addScaledVector(right, -dx * scale).addScaledVector(up, dy * scale);
+    };
 
     const onPointerDown = (event) => {
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      renderer.domElement.setPointerCapture(event.pointerId);
+      if (pointers.size === 2) {
+        pinch = { ...midpoint(), radius: state.orbit.radius };
+        moved = Infinity; // a two-finger gesture is never a click
+        return;
+      }
       dragging = true;
       moved = 0;
+      mode = event.button === 2 || event.shiftKey ? 'pan' : 'rotate';
       last = { x: event.clientX, y: event.clientY };
-      renderer.domElement.setPointerCapture(event.pointerId);
     };
 
     const onPointerMove = (event) => {
@@ -128,12 +184,26 @@ export default function BrainViewer({
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
+      if (pointers.has(event.pointerId)) pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+      if (pinch && pointers.size === 2) {
+        const now = midpoint();
+        state.orbit.radius = THREE.MathUtils.clamp(pinch.radius * (pinch.dist / Math.max(1, now.dist)), 60, 2000);
+        pan(now.x - pinch.x, now.y - pinch.y);
+        pinch = { ...now, radius: state.orbit.radius };
+        return;
+      }
+
       if (!dragging) return;
       const dx = event.clientX - last.x;
       const dy = event.clientY - last.y;
       moved += Math.abs(dx) + Math.abs(dy);
       last = { x: event.clientX, y: event.clientY };
 
+      if (mode === 'pan') {
+        pan(dx, dy);
+        return;
+      }
       state.orbit.theta -= dx * 0.006;
       state.orbit.phi -= dy * 0.006;
       // Clamp off the poles, where the camera's up vector degenerates.
@@ -142,15 +212,25 @@ export default function BrainViewer({
 
     const handleClick = () => {
       raycaster.setFromCamera(pointer, camera);
-      const hits = raycaster.intersectObjects(state.lesionMeshes, false);
+      const hits = raycaster.intersectObjects(state.lesionMeshes.filter((m) => m.visible), false);
       state.onSelect?.(hits.length ? hits[0].object.userData.lesionId : null);
     };
 
     const onPointerUp = (event) => {
-      if (dragging && moved < 5) handleClick();
-      dragging = false;
+      pointers.delete(event.pointerId);
+      if (pointers.size < 2) pinch = null;
+      if (dragging && moved < 5 && pointers.size === 0) handleClick();
+      if (pointers.size === 0) dragging = false;
+      else {
+        // One finger left after a pinch: carry on as a rotate from here.
+        const [remaining] = pointers.values();
+        last = { ...remaining };
+        mode = 'rotate';
+      }
       try { renderer.domElement.releasePointerCapture(event.pointerId); } catch { /* already released */ }
     };
+
+    const onContextMenu = (event) => event.preventDefault();
 
     const onWheel = (event) => {
       event.preventDefault();
@@ -162,6 +242,8 @@ export default function BrainViewer({
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
     renderer.domElement.addEventListener('pointermove', onPointerMove);
     renderer.domElement.addEventListener('pointerup', onPointerUp);
+    renderer.domElement.addEventListener('pointercancel', onPointerUp);
+    renderer.domElement.addEventListener('contextmenu', onContextMenu);
     renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
 
     const resize = () => {
@@ -209,6 +291,8 @@ export default function BrainViewer({
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       renderer.domElement.removeEventListener('pointermove', onPointerMove);
       renderer.domElement.removeEventListener('pointerup', onPointerUp);
+      renderer.domElement.removeEventListener('pointercancel', onPointerUp);
+      renderer.domElement.removeEventListener('contextmenu', onContextMenu);
       renderer.domElement.removeEventListener('wheel', onWheel);
       state.anatomy?.dispose();
       state.disposables.forEach((d) => d.dispose?.());
@@ -217,6 +301,28 @@ export default function BrainViewer({
       stateRef.current = null;
     };
   }, []);
+
+  useImperativeHandle(ref, () => ({
+    resetView() {
+      const state = stateRef.current;
+      if (!state?.defaultOrbit) return;
+      state.orbit = { ...state.defaultOrbit };
+      state.target.set(0, 0, 0);
+    },
+    zoom(factor) {
+      const state = stateRef.current;
+      if (!state) return;
+      state.orbit.radius = THREE.MathUtils.clamp(state.orbit.radius * factor, 60, 2000);
+    },
+    capture() {
+      const state = stateRef.current;
+      if (!state) return null;
+      // Render and read back in the same task: without preserveDrawingBuffer
+      // the buffer is only guaranteed intact until control returns to the browser.
+      state.renderer.render(state.scene, state.camera);
+      return state.renderer.domElement.toDataURL('image/png');
+    },
+  }), []);
 
   // Keep the latest callbacks reachable from the animation loop without
   // tearing down the renderer whenever a parent re-renders.
@@ -245,63 +351,70 @@ export default function BrainViewer({
     state.patientBrain = null;
 
     const track = (obj) => { disposables.push(obj); return obj; };
+    setSceneError(null);
 
-    if (scenePayload.brain) {
-      const geometry = track(buildGeometry(scenePayload.brain));
-      const material = track(new THREE.MeshPhongMaterial({
-        color: 0x9fb4d8,
-        transparent: true,
-        opacity: 0.12,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        shininess: 12,
-      }));
-      const brain = new THREE.Mesh(geometry, material);
-      brain.renderOrder = 3;
-      state.patientBrain = brain;
-      root.add(brain);
-    }
-
-    const addLesion = (entry, color) => {
-      if (!entry?.mesh) return;
-      const geometry = track(buildGeometry(entry.mesh));
-      const material = track(new THREE.MeshStandardMaterial({
-        color,
-        roughness: 0.35,
-        metalness: 0.05,
-        emissive: new THREE.Color(color).multiplyScalar(0.12),
-      }));
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.renderOrder = 1;
-      mesh.userData = { ...entry, lesionId: entry.lesion_id, baseColor: color };
-      state.lesionMeshes.push(mesh);
-      root.add(mesh);
-    };
-
-    if (mode === 'single') {
-      (scenePayload.lesions || []).forEach((entry) => {
-        addLesion(entry, entry.tb_typical_site ? LESION_TB_COLOR : LESION_COLOR);
-      });
-    } else {
-      Object.entries(scenePayload.change || {}).forEach(([layer, meshData]) => {
-        if (!meshData) return;
-        const geometry = track(buildGeometry(meshData));
-        const material = track(new THREE.MeshStandardMaterial({
-          color: CHANGE_COLORS[layer] ?? 0xffffff,
-          roughness: 0.4,
+    try {
+      if (scenePayload.brain) {
+        const geometry = track(buildGeometry(scenePayload.brain));
+        const material = track(new THREE.MeshPhongMaterial({
+          color: 0x9fb4d8,
           transparent: true,
-          opacity: 0.94,
+          opacity: 0.12,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          shininess: 12,
         }));
-        const object = new THREE.Mesh(geometry, material);
-        object.renderOrder = 1;
-        object.userData = { layer };
-        state.changeMeshes[layer] = object;
-        root.add(object);
-      });
+        const brain = new THREE.Mesh(geometry, material);
+        brain.renderOrder = 3;
+        state.patientBrain = brain;
+        root.add(brain);
+      }
+
+      const addLesion = (entry, color) => {
+        if (!entry?.mesh) return;
+        const geometry = track(buildGeometry(entry.mesh));
+        const material = track(new THREE.MeshStandardMaterial({
+          color,
+          roughness: 0.35,
+          metalness: 0.05,
+          emissive: new THREE.Color(color).multiplyScalar(0.12),
+        }));
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.renderOrder = 1;
+        mesh.userData = { ...entry, lesionId: entry.lesion_id, baseColor: color };
+        state.lesionMeshes.push(mesh);
+        root.add(mesh);
+      };
+
+      if (mode === 'single') {
+        (scenePayload.lesions || []).forEach((entry) => {
+          addLesion(entry, LESION_COLOR);
+        });
+      } else {
+        Object.entries(scenePayload.change || {}).forEach(([layer, meshData]) => {
+          if (!meshData) return;
+          const geometry = track(buildGeometry(meshData));
+          const material = track(new THREE.MeshStandardMaterial({
+            color: CHANGE_COLORS[layer] ?? 0xffffff,
+            roughness: 0.4,
+            transparent: true,
+            opacity: 0.94,
+          }));
+          const object = new THREE.Mesh(geometry, material);
+          object.renderOrder = 1;
+          object.userData = { layer };
+          state.changeMeshes[layer] = object;
+          root.add(object);
+        });
+      }
+    } catch (error) {
+      setSceneError(error.message);
+      return;
     }
 
     const radius = scenePayload.bounds_mm?.radius ?? 100;
     state.orbit.radius = radius * 3.6;
+    state.defaultOrbit = { radius: radius * 3.6, theta: -1.0, phi: 1.25 };
     state.target.set(0, 0, 0);
   }, [scenePayload, mode]);
 
@@ -338,10 +451,33 @@ export default function BrainViewer({
     const state = stateRef.current;
     if (!state) return;
 
-    const showAnatomy = brainSurface === 'anatomy';
+    const showAnatomy = showBrain && brainSurface === 'anatomy';
     if (state.anatomy?.group) state.anatomy.group.visible = showAnatomy;
-    if (state.patientBrain) state.patientBrain.visible = brainSurface === 'patient';
-  }, [brainSurface, atlasState.status, scenePayload]);
+    if (state.patientBrain) state.patientBrain.visible = showBrain && brainSurface === 'patient';
+  }, [brainSurface, showBrain, atlasState.status, scenePayload]);
+
+  useEffect(() => {
+    const state = stateRef.current;
+    if (!state) return;
+    state.lesionMeshes.forEach((mesh) => { mesh.visible = showLesions; });
+  }, [showLesions, scenePayload]);
+
+  useEffect(() => {
+    const state = stateRef.current;
+    if (!state) return;
+    const apply = (object) => {
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      materials.forEach((material) => {
+        if (material && 'wireframe' in material) {
+          material.wireframe = wireframe;
+          material.needsUpdate = true;
+        }
+      });
+    };
+    state.anatomy?.group?.traverse((object) => { if (object.isMesh) apply(object); });
+    if (state.patientBrain) apply(state.patientBrain);
+    state.lesionMeshes.forEach(apply);
+  }, [wireframe, atlasState.status, scenePayload]);
 
   useEffect(() => {
     const state = stateRef.current;
@@ -380,8 +516,7 @@ export default function BrainViewer({
   const legend = useMemo(() => (
     mode === 'single'
       ? [
-          { color: '#ff4d4d', label: 'Lesion' },
-          { color: '#ffb347', label: 'TB-typical site' },
+          { color: '#ff4d4d', label: 'AI-segmented region' },
           { color: '#4dd4ff', label: 'Selected' },
         ]
       : [
@@ -391,9 +526,28 @@ export default function BrainViewer({
         ]
   ), [mode]);
 
+  if (webglError) {
+    return (
+      <div className="viewer">
+        <div className="viewer-overlay error" role="alert">
+          <div>
+            3D view unavailable: this browser could not start WebGL ({webglError}).
+            <br />Enable hardware acceleration or open the scan on another device. The MRI slices and report are unaffected.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="viewer">
       <div ref={mountRef} className="viewer-canvas" />
+
+      {sceneError && (
+        <div className="viewer-overlay error" role="alert">
+          The 3D model for this analysis could not be displayed: {sceneError}
+        </div>
+      )}
 
       {brainSurface === 'anatomy' && atlasState.status === 'loading' && (
         <div className="viewer-overlay">
@@ -431,7 +585,7 @@ export default function BrainViewer({
       )}
 
       <div className="viewer-footer">
-        <span className="viewer-hint">Drag to rotate · scroll to zoom · click a lesion</span>
+        {showFooter && <span className="viewer-hint">Drag to rotate · right-drag or Shift-drag to pan · scroll or pinch to zoom · click a lesion</span>}
         {brainSurface === 'anatomy' && (
           <a className="viewer-credit" href={ATTRIBUTION.href} target="_blank" rel="noreferrer">
             {ATTRIBUTION.text}
@@ -440,4 +594,6 @@ export default function BrainViewer({
       </div>
     </div>
   );
-}
+});
+
+export default BrainViewer;

@@ -1,0 +1,228 @@
+/*
+ * Clinical application styles.
+ *
+ * The app renders inside `.nv-root` and so inherits the landing page's scoped
+ * reset and Tailwind setup (landing/landing.css). This file holds the handful
+ * of component classes that are clearer as CSS than as utility strings, plus
+ * overrides for the legacy dark 3D viewer chrome from styles.css.
+ *
+ * Specificity: styles.css styles `input[type="text"]` (0,1,1) and buttons on
+ * hover at (0,2,1) globally, so the input rules here carry `.nv-root` to win.
+ */
+
+body.route-clinic {
+  background: #f5f8fc;
+  color: #0d1424;
+}
+
+.cx-root {
+  --cx-ink: #0d1424;
+  --cx-soft: #5b6b85;
+  --cx-faint: #627089;
+  --cx-line: #e3eaf5;
+  --cx-line-strong: #cfdbee;
+  --cx-blue: #136bd0;
+  --cx-surface: #ffffff;
+  --cx-bg: #f5f8fc;
+  --cx-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  background: var(--cx-bg);
+}
+
+/* The landing reset does not cover definition lists; browsers indent <dd> by
+   40px, which pushes every value in the detail grids off its label. */
+.cx-root dl,
+.cx-root dd {
+  margin: 0;
+}
+
+/* --- surfaces ------------------------------------------------------------ */
+
+.cx-card {
+  background: var(--cx-surface);
+  border: 1px solid var(--cx-line);
+  border-radius: 20px;
+  box-shadow:
+    0 1px 2px rgba(16, 38, 76, 0.035),
+    0 6px 20px rgba(16, 38, 76, 0.04);
+}
+
+.cx-card-hover {
+  transition: box-shadow 450ms var(--cx-ease), border-color 300ms var(--cx-ease);
+}
+@media (hover: hover) {
+  .cx-card-hover:hover {
+    border-color: var(--cx-line-strong);
+    box-shadow:
+      0 1px 2px rgba(16, 38, 76, 0.04),
+      0 12px 32px rgba(16, 38, 76, 0.07);
+  }
+}
+
+/* --- form controls ------------------------------------------------------- */
+
+.nv-root .cx-input,
+.nv-root .cx-input:focus {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid var(--cx-line-strong);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--cx-ink);
+  font: inherit;
+  font-size: 14.5px;
+  line-height: 1.4;
+  transition: border-color 200ms var(--cx-ease), box-shadow 250ms var(--cx-ease);
+}
+.nv-root textarea.cx-input { min-height: 88px; resize: vertical; }
+.nv-root .cx-input::placeholder { color: #a3b0c5; }
+.nv-root .cx-input:focus {
+  outline: none;
+  border-color: #6aa7f2;
+  box-shadow: 0 0 0 4px rgba(22, 119, 232, 0.12);
+}
+.nv-root .cx-input[aria-invalid='true'] {
+  border-color: #e5484d;
+  box-shadow: 0 0 0 4px rgba(229, 72, 77, 0.1);
+}
+.nv-root select.cx-input {
+  appearance: none;
+  padding-right: 38px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235b6b85' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+
+.nv-root .cx-check {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--cx-blue);
+}
+
+/* --- extra button variants (primary/secondary come from landing.css) ----- */
+
+.nv-root .cx-btn-ghost,
+.nv-root .cx-btn-ghost:hover:not(:disabled) {
+  color: #33415c;
+  border: 1px solid transparent;
+  background: transparent;
+}
+@media (hover: hover) {
+  .nv-root .cx-btn-ghost:hover:not(:disabled) {
+    background: #eef4fd;
+    color: var(--cx-ink);
+  }
+}
+
+.nv-root .cx-btn-danger,
+.nv-root .cx-btn-danger:hover:not(:disabled) {
+  color: #b42318;
+  border: 1px solid #f5c7c4;
+  background: #fff;
+}
+@media (hover: hover) {
+  .nv-root .cx-btn-danger:hover:not(:disabled) {
+    background: #fff5f4;
+    border-color: #eea39d;
+  }
+}
+
+.nv-root .nv-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: saturate(0.6);
+}
+
+/* --- skeleton ------------------------------------------------------------ */
+
+.cx-skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #edf2f9;
+}
+.cx-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent);
+  animation: cx-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes cx-shimmer {
+  to { transform: translateX(100%); }
+}
+
+/* --- processing line ------------------------------------------------------ */
+
+.cx-scanline {
+  position: relative;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e6eef9;
+}
+.cx-scanline::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 38%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, #1677e8, #4dd4ff, transparent);
+  animation: cx-sweep 1.8s cubic-bezier(0.45, 0, 0.35, 1) infinite;
+}
+@keyframes cx-sweep {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(290%); }
+}
+
+/* --- MRI slice viewer ----------------------------------------------------- */
+
+.cx-mri-stage {
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+  background: #05080d;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+.cx-mri-stage:active { cursor: grabbing; }
+.cx-mri-stage img {
+  image-rendering: auto;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+
+/* --- legacy 3D viewer chrome, re-skinned for the light app ---------------- */
+
+.cx-viewer-frame {
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  background:
+    radial-gradient(ellipse at 50% 40%, #1a2436 0%, #0b111c 70%);
+}
+.cx-viewer-frame .viewer-legend {
+  background: rgba(10, 16, 28, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(8px);
+}
+.cx-viewer-frame .viewer-footer { color: rgba(255, 255, 255, 0.55); }
+
+/* --- print: the report page prints as the report, nothing else ------------ */
+
+@media print {
+  body.route-clinic { background: #fff; }
+  .cx-no-print { display: none !important; }
+  .cx-print-root { box-shadow: none !important; border: 0 !important; padding: 0 !important; }
+  .cx-root { background: #fff !important; }
+  .nv-root::before { display: none; }
+  @page { margin: 14mm; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cx-skeleton::after,
+  .cx-scanline::after { animation: none; }
+}

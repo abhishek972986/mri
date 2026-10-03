@@ -12,7 +12,7 @@ export default function FeaturesHero() {
     >
       <motion.p
         variants={fadeUp}
-        className="text-[11.5px] font-semibold uppercase tracking-[0.32em] text-[#5B7BA6]"
+        className="text-[11.5px] font-semibold uppercase tracking-[0.32em] text-[#4F6D96]"
       >
         Features
       </motion.p>
@@ -28,8 +28,8 @@ export default function FeaturesHero() {
         variants={fadeUp}
         className="mx-auto mt-4 max-w-[640px] text-[15px] leading-relaxed text-ink-soft sm:text-[16px]"
       >
-        Powerful AI tools and interactive 3D visualization to make brain MRI analysis faster,
-        simpler and more accurate.
+        AI segmentation, measurement and interactive 3D visualization that make brain MRI
+        review clearer — with every finding left to the doctor to confirm.
       </motion.p>
     </motion.header>
   );

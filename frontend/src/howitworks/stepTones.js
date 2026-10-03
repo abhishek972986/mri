@@ -13,8 +13,8 @@
 export const STEP_TONES = {
   blue: {
     card: 'from-[#F4F9FF] to-[#FAFCFF] border-[#E1ECFA]',
-    badge: 'bg-[#E6F0FD] text-[#1677E8]',
-    title: 'text-[#1677E8]',
+    badge: 'bg-[#E6F0FD] text-brand',
+    title: 'text-brand',
     line: '#1677E8',
   },
   mint: {
@@ -37,7 +37,7 @@ export const STEP_TONES = {
   },
   navy: {
     card: 'from-[#F4F9FF] to-[#FAFCFF] border-[#E1ECFA]',
-    badge: 'bg-[#E6F0FD] text-[#1677E8]',
+    badge: 'bg-[#E6F0FD] text-brand',
     title: 'text-ink',
     line: '#1677E8',
   },

@@ -62,7 +62,7 @@ export const LEFT_FEATURES = [
     tone: 'rose',
     icon: Target,
     title: 'AI-Powered Detection',
-    body: 'Accurately identifies abnormal regions such as tumors, lesions, and other anomalies in MRI scans.',
+    body: 'Segments regions of abnormal signal in brain MRI for review. It shows where; it does not determine what.',
     anchor: { x: 0.3, y: 0.31 },
   },
   {
@@ -97,7 +97,7 @@ export const RIGHT_FEATURES = [
     tone: 'pink',
     icon: Zap,
     title: 'Faster Analysis',
-    body: 'Reduce analysis time from hours to minutes, helping doctors make quicker decisions.',
+    body: 'Segmentation, measurements, 3D model and report produced in one automated run.',
     anchor: { x: 0.8, y: 0.52 },
   },
   {
@@ -105,7 +105,7 @@ export const RIGHT_FEATURES = [
     tone: 'amber',
     icon: Users,
     title: 'Designed for Doctors',
-    body: 'A simple, intuitive interface built for real-world clinical use.',
+    body: 'A focused interface built around the doctor’s review and sign-off.',
     anchor: { x: 0.71, y: 0.73 },
   },
 ];

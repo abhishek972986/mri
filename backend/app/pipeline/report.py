@@ -1,17 +1,23 @@
 """Structured preliminary report generation.
 
-The report is deliberately conservative in its language. An automated system that
-has detected a focal lesion has evidence of a focal lesion -- it does not have
-evidence of tuberculosis, which is a clinical and microbiological diagnosis. So
-the wording throughout is "findings", "compatible with", "requires correlation",
-and every report carries an explicit not-a-diagnosis banner.
+What the report may claim is bounded by what produced the findings. The
+segmentation model in use (see the checkpoint's provenance) was trained on
+adult diffuse glioma FLAIR scans (BraTS 2024). It marks regions of abnormal
+signal and the pipeline measures them. It does not determine what a region is
+-- tumour type, grade, infection, demyelination -- so no text here names a
+disease or offers a differential diagnosis. The wording is "segmented",
+"regions of abnormal signal", "requires review", and every report carries an
+explicit not-a-diagnosis banner.
 
-Confidence is reported as two separate numbers because they mean different things:
-  - detection_confidence: how sure the model is that the voxels it marked are lesion.
-  - tb_pattern_score:     how well the *distribution* of findings matches the known
-                          radiological pattern of CNS TB. This is a rule-based
-                          heuristic over location, multiplicity, size and shape --
-                          it is not a trained classifier and says so.
+History: this pipeline began as NeuroTB, a tuberculosis decision-support
+prototype, and reports up to text version 1 carried a rule-based "TB pattern
+score" and TB-specific impressions. A glioma-trained segmenter cannot support
+those, so version 2 removed them. `normalize_report` rebuilds the text of any
+stored version-1 report from its own stored measurements, so older analyses
+are never shown with the old claims.
+
+Confidence is the model's mean probability over the voxels it marked. It ranks
+voxels; unless the checkpoint is calibrated it is not a probability of disease.
 """
 
 from __future__ import annotations
@@ -22,14 +28,20 @@ from datetime import datetime, timezone
 from . import atlas
 from .quantify import Lesion, LesionBurden, region_breakdown
 
+REPORT_TEXT_VERSION = 2
+
+# Per-lesion fields from text version 1 that encoded a tuberculosis
+# interpretation ("site with TB predilection"). Stripped wherever stored
+# lesions are served.
+LEGACY_LESION_KEYS = ("tb_typical_site",)
+
 DISCLAIMER = (
     "AI-GENERATED PRELIMINARY ANALYSIS - NOT A DIAGNOSIS. This report is decision "
-    "support produced by an automated system. It has not been reviewed by a "
-    "physician and must not be used to guide patient care until a qualified "
-    "radiologist or treating clinician has reviewed the source images and "
-    "approved or corrected these findings. Imaging findings alone cannot establish "
-    "a diagnosis of central nervous system tuberculosis; correlation with clinical "
-    "presentation, CSF analysis, and microbiological confirmation is required."
+    "support produced by an automated segmentation system. It must not be used to "
+    "guide patient care until a qualified radiologist or treating clinician has "
+    "reviewed the source images and approved or corrected these findings. Automated "
+    "segmentation identifies regions of abnormal signal; it does not establish their "
+    "cause, and no diagnosis can be made from it alone."
 )
 
 
@@ -39,6 +51,7 @@ class Report:
     disclaimer: str
     status: str                              # draft | reviewed | approved
     headline: str
+    text_version: int = REPORT_TEXT_VERSION
     findings: list[str] = field(default_factory=list)
     impression: str = ""
     burden: dict = field(default_factory=dict)
@@ -64,37 +77,19 @@ def build_report(
     preprocessing: dict | None = None,
     provenance: dict | None = None,
 ) -> Report:
-    tb_score, tb_reasons = _tb_pattern_score(lesions, burden)
-    detection_confidence = burden.mean_probability
-
-    findings = _findings(lesions, burden, comparison)
-    headline = _headline(lesions, burden, tb_score)
-    impression = _impression(lesions, burden, tb_score, tb_reasons, comparison)
+    lesion_rows = [l.to_dict() for l in lesions]
+    burden_row = burden.to_dict()
+    text = compose_text(
+        lesion_rows, burden_row, segmentation_method, sequences, calibrated, provenance, comparison
+    )
 
     return Report(
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         disclaimer=DISCLAIMER,
         status="draft",
-        headline=headline,
-        findings=findings,
-        impression=impression,
-        burden=burden.to_dict(),
-        lesions=[l.to_dict() for l in lesions],
+        burden=burden_row,
+        lesions=lesion_rows,
         regions=region_breakdown(lesions),
-        confidence={
-            "detection_confidence": round(detection_confidence, 3),
-            "detection_confidence_label": _confidence_label(detection_confidence),
-            "tb_pattern_score": round(tb_score, 3),
-            "tb_pattern_label": _confidence_label(tb_score),
-            "tb_pattern_reasons": tb_reasons,
-            "calibrated": calibrated,
-            "calibration_note": (
-                "Probabilities are calibrated against a held-out validation set."
-                if calibrated else
-                "Probabilities are UNCALIBRATED and must not be read as the likelihood "
-                "of disease. They rank voxels; they do not estimate risk."
-            ),
-        },
         technique={
             "sequences_analysed": sequences,
             "segmentation_method": segmentation_method,
@@ -104,54 +99,156 @@ def build_report(
         },
         comparison=comparison,
         alerts=(comparison or {}).get("alerts", []),
-        limitations=_limitations(segmentation_method, sequences, calibrated, provenance),
+        **text,
     )
 
 
-def _headline(lesions: list[Lesion], burden: LesionBurden, tb_score: float) -> str:
-    if not lesions:
-        return "No focal lesion detected by automated analysis."
+def compose_text(
+    lesions: list[dict],
+    burden: dict,
+    method: str | None,
+    sequences: list[str],
+    calibrated: bool,
+    provenance: dict | None,
+    comparison: dict | None = None,
+) -> dict:
+    """Every human-readable field of a report, from measurements alone."""
+    ordered = sorted(lesions, key=lambda l: l.get("volume_cm3") or 0, reverse=True)
+    detection_confidence = float(burden.get("mean_probability") or 0.0)
+    return {
+        "text_version": REPORT_TEXT_VERSION,
+        "headline": _headline(ordered, burden),
+        "findings": _findings(ordered, burden, comparison),
+        "impression": _impression(ordered, burden, method, provenance, comparison),
+        "confidence": {
+            "detection_confidence": round(detection_confidence, 3),
+            "detection_confidence_label": _confidence_label(detection_confidence),
+            "calibrated": calibrated,
+            "calibration_note": (
+                "Probabilities are calibrated against a held-out validation set."
+                if calibrated else
+                "Probabilities are UNCALIBRATED and must not be read as the likelihood "
+                "of disease. They rank voxels; they do not estimate risk."
+            ),
+        },
+        "limitations": _limitations(method, sequences, calibrated, provenance),
+    }
 
-    count = burden.lesion_count
-    noun = "lesion" if count == 1 else "lesions"
-    sites = ", ".join(burden.regions_involved[:3])
-    more = f" and {len(burden.regions_involved) - 3} further site(s)" if len(burden.regions_involved) > 3 else ""
-    qualifier = "with a distribution compatible with" if tb_score >= 0.5 else "of non-specific distribution for"
+
+def public_lesions(lesions: list | None) -> list:
+    """Stored lesion rows without the legacy interpretation fields."""
+    return [
+        {k: v for k, v in lesion.items() if k not in LEGACY_LESION_KEYS} if isinstance(lesion, dict) else lesion
+        for lesion in (lesions or [])
+    ]
+
+
+def normalize_report(report: dict | None) -> dict | None:
+    """Return a stored report with current wording.
+
+    Reports written before text version 2 contain tuberculosis-specific text
+    that the current model cannot support. Their measurements are unaffected,
+    so the text is regenerated from the stored lesions and burden; nothing is
+    written back to the database.
+    """
+    if not report:
+        return report
+    if (report.get("text_version") or 1) >= REPORT_TEXT_VERSION:
+        return {**report, "lesions": public_lesions(report.get("lesions"))}
+
+    technique = report.get("technique") or {}
+    confidence = report.get("confidence") or {}
+    text = compose_text(
+        report.get("lesions") or [],
+        report.get("burden") or {},
+        technique.get("segmentation_method"),
+        technique.get("sequences_analysed") or [],
+        bool(confidence.get("calibrated", False)),
+        technique.get("model_provenance") or {},
+        report.get("comparison"),
+    )
+    return {
+        **report,
+        **text,
+        "disclaimer": DISCLAIMER,
+        "lesions": public_lesions(report.get("lesions")),
+        "technique": {**technique, "segmentation_notes": _current_notes(technique.get("segmentation_notes"))},
+        "text_regenerated_from": report.get("text_version") or 1,
+    }
+
+
+def normalize_technique(technique: dict | None) -> dict | None:
+    """A stored technique block (the analysis row keeps its own copy) with current notes."""
+    if not technique:
+        return technique
+    return {**technique, "segmentation_notes": _current_notes(technique.get("segmentation_notes"))}
+
+
+def _current_notes(notes: list | None) -> list:
+    """Version-1 technique notes with disease-specific wording replaced."""
+    from .segmentation import CLASSICAL_NOTE
+
+    current = []
+    for note in notes or []:
+        if isinstance(note, str) and "tubercul" in note.lower():
+            if note.startswith("Classical blob detector"):
+                current.append(CLASSICAL_NOTE)
+            # Otherwise it was the U-Net's "never seen a tuberculoma" note, which
+            # the model-scope limitation now states in neutral terms: drop it.
+            continue
+        current.append(note)
+    return current
+
+
+def _plural(count: int, singular: str, plural: str | None = None) -> str:
+    return singular if count == 1 else (plural or f"{singular}s")
+
+
+def _where(lesion: dict) -> str:
+    return f"{lesion.get('side', '')} {lesion.get('region', '')}".strip() or "an unlabelled location"
+
+
+def _headline(lesions: list[dict], burden: dict) -> str:
+    if not lesions:
+        return "The segmentation model marked no region above its detection threshold."
+
+    count = burden.get("lesion_count", len(lesions))
+    regions = burden.get("regions_involved") or []
+    sites = ", ".join(regions[:3])
+    more = f" and {len(regions) - 3} further site(s)" if len(regions) > 3 else ""
     return (
-        f"{count} focal {noun} detected ({burden.total_volume_cm3:.2f} cm3 total) "
-        f"involving the {sites}{more}, {qualifier} intracranial tuberculosis."
+        f"AI segmentation marked {count} focal {_plural(count, 'region')} of abnormal signal "
+        f"({burden.get('total_volume_cm3', 0):.2f} cm3 total) involving the {sites}{more}."
     )
 
 
-def _findings(lesions: list[Lesion], burden: LesionBurden, comparison: dict | None) -> list[str]:
+def _findings(lesions: list[dict], burden: dict, comparison: dict | None) -> list[str]:
     if not lesions:
-        return ["No focal signal abnormality meeting detection criteria was identified."]
+        return ["No region of abnormal signal met the segmentation threshold."]
 
+    largest = lesions[0]
     findings = [
-        f"Number of discrete lesions: {burden.lesion_count}.",
-        f"Total lesion volume: {burden.total_volume_cm3:.2f} cm3 "
-        f"({burden.lesion_load_percent:.3f}% of segmented brain volume, "
-        f"{burden.brain_volume_cm3:.0f} cm3).",
-        f"Largest lesion: {burden.largest_volume_cm3:.2f} cm3, "
-        f"maximum diameter {lesions[0].max_diameter_mm:.1f} mm, "
-        f"in the {lesions[0].side} {lesions[0].region}.",
+        f"Number of discrete segmented regions: {burden.get('lesion_count', len(lesions))}.",
+        f"Total segmented volume: {burden.get('total_volume_cm3', 0):.2f} cm3 "
+        f"({burden.get('lesion_load_percent', 0):.3f}% of segmented brain volume, "
+        f"{burden.get('brain_volume_cm3', 0):.0f} cm3).",
+        f"Largest region: {largest.get('volume_cm3', 0):.2f} cm3, "
+        f"maximum diameter {largest.get('max_diameter_mm', 0):.1f} mm, in the {_where(largest)}.",
     ]
 
     for lesion in lesions[:8]:
+        dims = lesion.get("dimensions_mm") or [0, 0, 0]
         findings.append(
-            f"Lesion {lesion.id}: {lesion.volume_cm3:.3f} cm3, "
-            f"{lesion.dimensions_mm[0]:.0f} x {lesion.dimensions_mm[1]:.0f} x "
-            f"{lesion.dimensions_mm[2]:.0f} mm, {lesion.side} {lesion.region}, "
-            f"sphericity {lesion.sphericity:.2f}."
+            f"Region {lesion.get('id')}: {lesion.get('volume_cm3', 0):.3f} cm3, "
+            f"{dims[0]:.0f} x {dims[1]:.0f} x {dims[2]:.0f} mm, {_where(lesion)}, "
+            f"sphericity {lesion.get('sphericity', 0):.2f}."
         )
     if len(lesions) > 8:
-        findings.append(f"({len(lesions) - 8} additional smaller lesions tabulated in the lesion list.)")
+        findings.append(f"({len(lesions) - 8} additional smaller regions tabulated in the region list.)")
 
-    if burden.min_inter_lesion_distance_mm is not None and burden.min_inter_lesion_distance_mm < 15:
-        findings.append(
-            f"Closest lesion pair separated by {burden.min_inter_lesion_distance_mm:.1f} mm; "
-            "clustered distribution."
-        )
+    closest = burden.get("min_inter_lesion_distance_mm")
+    if closest is not None and closest < 15:
+        findings.append(f"Closest pair of regions separated by {closest:.1f} mm.")
 
     if comparison:
         findings.append(f"Comparison with prior study: {comparison.get('summary', 'not available')}")
@@ -159,100 +256,53 @@ def _findings(lesions: list[Lesion], burden: LesionBurden, comparison: dict | No
     return findings
 
 
+def _model_scope(method: str | None, provenance: dict | None) -> str:
+    pathology = (provenance or {}).get("pathology") or (provenance or {}).get("trained_on")
+    if pathology:
+        return f"a segmentation model trained on {pathology}"
+    if method == "classical":
+        return "a classical blob detector (no trained model)"
+    return "an automated segmentation model"
+
+
 def _impression(
-    lesions: list[Lesion],
-    burden: LesionBurden,
-    tb_score: float,
-    reasons: list[str],
+    lesions: list[dict],
+    burden: dict,
+    method: str | None,
+    provenance: dict | None,
     comparison: dict | None,
 ) -> str:
+    scope = _model_scope(method, provenance)
     if not lesions:
         base = (
-            "Automated analysis identified no focal lesion. A negative automated result does "
-            "not exclude intracranial tuberculosis: meningeal enhancement, small miliary "
-            "lesions, and early basal exudate may fall below the detection threshold of this "
-            "system and require direct review of contrast-enhanced sequences."
-        )
-    elif tb_score >= 0.6:
-        base = (
-            f"Multifocal intracranial lesions with several features described in intracranial "
-            f"tuberculosis ({'; '.join(reasons[:3])}). The differential also includes "
-            f"neurocysticercosis, pyogenic or fungal abscess, metastatic disease, and "
-            f"demyelination, which cannot be distinguished on this automated analysis alone."
-        )
-    elif tb_score >= 0.35:
-        base = (
-            f"Focal intracranial lesion(s) of indeterminate aetiology. Some features are "
-            f"consistent with tuberculosis ({'; '.join(reasons[:2]) or 'limited supporting features'}), "
-            f"but the appearances are non-specific and a broad differential applies."
+            f"Automated segmentation by {scope} marked no region above its threshold. A negative "
+            "automated result does not exclude pathology: abnormalities that are small, low in "
+            "contrast, outside the model's training scope, or visible only on other sequences "
+            "may not be segmented."
         )
     else:
+        count = burden.get("lesion_count", len(lesions))
+        largest = lesions[0]
         base = (
-            "Focal intracranial lesion(s) detected. The distribution and morphology are not "
-            "characteristic of intracranial tuberculosis; alternative aetiologies should be "
-            "considered first."
+            f"Automated segmentation by {scope} marked {count} focal "
+            f"{_plural(count, 'region')} of abnormal signal totalling "
+            f"{burden.get('total_volume_cm3', 0):.2f} cm3; the largest measures "
+            f"{largest.get('volume_cm3', 0):.2f} cm3 in the {_where(largest)}. The segmentation "
+            "delineates signal abnormality only. It does not determine the nature, grade or "
+            "cause of a finding and does not distinguish tumour from other focal pathology."
         )
 
     if comparison:
         trend = comparison.get("trend", "indeterminate")
         trend_text = {
-            "improving": "Interval comparison shows reduction in overall lesion burden, consistent with treatment response.",
-            "worsening": "Interval comparison shows an increase in lesion burden. Urgent clinical review is advised.",
-            "stable": "Interval comparison shows no significant change in lesion burden.",
-            "mixed": "Interval comparison shows a mixed response, with both regressing and progressing lesions.",
-        }.get(trend, "Interval comparison is indeterminate.")
+            "improving": "Compared with the prior study, the total segmented volume has decreased.",
+            "worsening": "Compared with the prior study, the total segmented volume has increased.",
+            "stable": "Total segmented volume is unchanged within the 20% measurement tolerance.",
+            "mixed": "Some segmented regions are new or larger while others are smaller or no longer segmented.",
+        }.get(trend, "The change in segmented volume since the prior study is indeterminate.")
         base = f"{base} {trend_text}"
 
-    return f"{base} Radiologist review and clinical correlation required."
-
-
-def _tb_pattern_score(lesions: list[Lesion], burden: LesionBurden) -> tuple[float, list[str]]:
-    """Rule-based scoring of how TB-like the finding distribution is.
-
-    Encodes textbook radiological features of CNS TB. This is explicitly a
-    heuristic, not a learned classifier, so it is transparent and auditable --
-    every point it awards is reported as a reason.
-    """
-    if not lesions:
-        return 0.0, []
-
-    score = 0.0
-    reasons: list[str] = []
-
-    typical = [l for l in lesions if l.tb_typical_site]
-    if typical:
-        weight = min(0.30, 0.15 + 0.05 * len(typical))
-        score += weight
-        sites = sorted({l.region for l in typical})
-        reasons.append(f"involvement of sites with TB predilection ({', '.join(sites)})")
-
-    if burden.lesion_count >= 2:
-        score += 0.20
-        reasons.append(f"multifocal disease ({burden.lesion_count} lesions)")
-
-    # Tuberculomas are typically 5-25 mm; larger suggests abscess or neoplasm.
-    diameters = [l.max_diameter_mm for l in lesions]
-    in_range = sum(1 for d in diameters if 4.0 <= d <= 25.0)
-    if in_range:
-        fraction = in_range / len(diameters)
-        score += 0.20 * fraction
-        reasons.append(f"{in_range}/{len(diameters)} lesions in the typical tuberculoma size range (4-25 mm)")
-
-    rounded = [l for l in lesions if l.sphericity >= 0.55]
-    if rounded:
-        score += 0.15 * (len(rounded) / len(lesions))
-        reasons.append(f"{len(rounded)}/{len(lesions)} lesions with rounded morphology")
-
-    if burden.min_inter_lesion_distance_mm is not None and burden.min_inter_lesion_distance_mm < 20:
-        score += 0.10
-        reasons.append("clustered lesion distribution")
-
-    # A very heavy burden argues against discrete tuberculomas.
-    if burden.lesion_load_percent > 3.0:
-        score -= 0.15
-        reasons.append("high total lesion load, less typical of discrete tuberculomas")
-
-    return float(max(0.0, min(1.0, score))), reasons
+    return f"{base} Radiologist review of the source images and clinical correlation are required."
 
 
 def _confidence_label(value: float) -> str:
@@ -266,34 +316,33 @@ def _confidence_label(value: float) -> str:
 
 
 def _limitations(
-    method: str, sequences: list[str], calibrated: bool, provenance: dict | None = None
+    method: str | None, sequences: list[str], calibrated: bool, provenance: dict | None = None
 ) -> list[str]:
     limitations = [
         "Anatomical localization is geometric and approximate; it is not derived from a "
         "registered anatomical atlas and region labels may be imprecise near boundaries.",
         "Skull stripping, bias correction, and registration use lightweight implementations; "
         "segmentation accuracy degrades on scans with heavy motion or susceptibility artifact.",
-        "The system detects focal signal abnormality. It does not assess meningeal enhancement, "
-        "hydrocephalus, infarction, or midline shift, any of which may be the dominant finding.",
+        "The system segments focal signal abnormality. It does not assess contrast enhancement, "
+        "mass effect, midline shift, hydrocephalus, haemorrhage or infarction.",
     ]
 
     if method == "classical":
         limitations.insert(0, (
             "Findings were produced by a classical blob detector, not a trained segmentation "
-            "model. It cannot discriminate tuberculomas from other focal hyperintense lesions "
-            "and has no validated sensitivity or specificity. Results are for demonstration "
-            "and pipeline validation only."
+            "model. It flags focal bright regions of plausible size, has no validated sensitivity "
+            "or specificity, and its results are for demonstration and pipeline validation only."
         ))
-    # A model trained on a different disease is the single most important thing
-    # a reader of this report needs to know, so it goes first.
-    if provenance and provenance.get("not_tuberculosis"):
-        pathology = provenance.get("pathology") or provenance.get("trained_on") or "another pathology"
+
+    # What the model was trained on is the single most important thing a reader
+    # of this report needs to know, so it goes first.
+    pathology = (provenance or {}).get("pathology") or (provenance or {}).get("trained_on")
+    if pathology:
         limitations.insert(0, (
-            f"The segmentation model was trained on {pathology} and has never been shown "
-            f"a tuberculoma. It detects focal brain lesions; it cannot distinguish "
-            f"tuberculosis from the disease it was trained on, nor from any other focal "
-            f"lesion. Reported sensitivity and specificity figures for this model describe "
-            f"that training pathology and do not transfer to tuberculosis."
+            f"The segmentation model was trained and validated only on {pathology}. Its "
+            "measured performance describes that dataset; it has not been validated on other "
+            "pathologies, scanners or acquisition protocols, and it does not identify what a "
+            "segmented region is."
         ))
 
     if not calibrated:
@@ -304,8 +353,8 @@ def _limitations(
     if len(sequences) <= 1:
         limitations.append(
             f"Analysis used a single sequence ({sequences[0] if sequences else 'unknown'}). "
-            "Characterisation of intracranial tuberculosis normally requires T1, T2, FLAIR "
-            "and post-contrast T1 together; ring enhancement in particular cannot be assessed "
-            "without post-contrast imaging."
+            "Characterising a brain lesion normally requires the full multi-sequence "
+            "examination, including post-contrast T1; enhancement cannot be assessed from "
+            "this analysis."
         )
     return limitations

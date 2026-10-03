@@ -167,10 +167,8 @@ def main() -> int:
                 print(f"\nUsing validation-tuned threshold {threshold} from {eval_path.name}")
             except Exception:
                 threshold = None
-    if threshold is None:
-        threshold = segmentation.DEFAULT_THRESHOLD
-        print(f"\nUsing default threshold {threshold} "
-              f"(run evaluate.py --tune to derive one from validation)")
+    # Still None: let the backend choose -- the checkpoint's own tuned
+    # operating_threshold if it has one, otherwise the module default.
 
     # --- segment ------------------------------------------------------------
     print("Running the model...")
@@ -179,7 +177,8 @@ def main() -> int:
         checkpoint=args.checkpoint if args.checkpoint.exists() else None,
         threshold=threshold,
     )
-    print(f"  backend: {seg.method}")
+    threshold = seg.threshold
+    print(f"  backend: {seg.method}  (threshold {threshold})")
     for note in seg.notes:
         print(f"    {note}")
     if seg.method != "unet":
@@ -201,13 +200,10 @@ def main() -> int:
         print(f"\n  {'#':>3}  {'volume cm3':>10}  {'max mm':>7}  {'spher':>6}  {'conf':>5}  location")
         print(f"  {'-' * 3}  {'-' * 10}  {'-' * 7}  {'-' * 6}  {'-' * 5}  {'-' * 32}")
         for l in lesions[:15]:
-            flag = " *" if l.tb_typical_site else ""
             print(f"  {l.id:>3}  {l.volume_cm3:>10.3f}  {l.max_diameter_mm:>7.1f}  "
-                  f"{l.sphericity:>6.2f}  {l.mean_probability:>5.2f}  {l.side} {l.region}{flag}")
+                  f"{l.sphericity:>6.2f}  {l.mean_probability:>5.2f}  {l.side} {l.region}")
         if len(lesions) > 15:
             print(f"  ... and {len(lesions) - 15} more")
-        if any(l.tb_typical_site for l in lesions):
-            print("  * site with a recognised TB predilection (location only - not a diagnosis)")
     else:
         print("\n  No lesion met the detection criteria.")
 
@@ -246,9 +242,7 @@ def main() -> int:
 
     print(f"\n  Impression: {built.impression}")
     print(f"\n  Confidence: detection {built.confidence['detection_confidence']:.3f} "
-          f"({built.confidence['detection_confidence_label']}), "
-          f"TB pattern {built.confidence['tb_pattern_score']:.3f} "
-          f"({built.confidence['tb_pattern_label']})")
+          f"({built.confidence['detection_confidence_label']}, uncalibrated)")
 
     print(f"\n  Limitations:")
     for line in built.limitations[:3]:

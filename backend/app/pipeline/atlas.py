@@ -10,8 +10,8 @@ It is approximate by construction, and every label it produces is marked as such
 so the report never overstates what it knows. `label_lesion` is the seam to
 replace: give it a real atlas lookup and the rest of the system is unchanged.
 
-TB has characteristic sites -- basal meninges, corticomedullary junction, and the
-cerebellum -- so the zone set is chosen to make those distinguishable.
+The zone set separates infratentorial, deep grey and basal structures from the
+cortical lobes, so a finding's broad location is legible at a glance.
 """
 
 from __future__ import annotations
@@ -117,7 +117,7 @@ def _zone(x: float, y: float, z: float) -> str:
     if midline_dist < 0.22 and 0.35 < y < 0.62 and 0.35 < z < 0.62:
         return "thalamus" if y < 0.48 else "basal ganglia"
 
-    # Basal cisterns, the classic site of tuberculous meningitis.
+    # Basal cisterns / suprasellar region: low, central, below the deep grey.
     if z < 0.30 and y >= 0.42:
         return "basal cisterns / suprasellar region"
 
@@ -143,17 +143,3 @@ _LOBE_OF = {
     "basal ganglia": "deep grey matter",
     "basal cisterns / suprasellar region": "basal",
 }
-
-# Sites where TB has a recognised predilection. Used to add context to the
-# report, never to change the detection itself.
-TB_TYPICAL_SITES = {
-    "basal cisterns / suprasellar region",
-    "cerebellum",
-    "brainstem",
-    "basal ganglia",
-    "thalamus",
-}
-
-
-def is_tb_typical_site(region: str) -> bool:
-    return region in TB_TYPICAL_SITES

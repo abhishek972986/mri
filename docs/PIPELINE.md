@@ -3,6 +3,11 @@
 What each stage does, why it is implemented the way it is, and what to replace it
 with when you move past a prototype. Read alongside the module docstrings.
 
+> Some design rationale below (the classical detector's ring-filling, the
+> atlas zone set) dates from NeuroTB, the tuberculosis prototype this project
+> grew from, and is kept as history. The shipped model is glioma-trained and
+> the application makes no tuberculosis claims.
+
 ---
 
 ## 1. Loading — `pipeline/volume.py`
@@ -206,13 +211,20 @@ what is needed here is a fraction of what it does.
 
 ## 13. Reporting — `pipeline/report.py`
 
-Deliberately conservative language throughout. A system that detected a focal
-lesion has evidence of a focal lesion — not of tuberculosis, which is a clinical
-and microbiological diagnosis.
+Deliberately conservative language throughout. A segmentation model that marked
+a region has evidence of abnormal signal there — not of what caused it. The
+shipped model is trained on adult glioma (BraTS 2024, FLAIR), so report text is
+limited to what segmentation and measurement support: "regions of abnormal
+signal", their size, and approximate location. No disease is named and no
+differential diagnosis is offered; the model's training scope is the first
+limitation of every report. `test_report_never_names_a_disease_the_model_cannot_identify`
+pins this.
 
-A negative result is never phrased as exclusion: small miliary lesions, early
-basal exudate and meningeal enhancement can all fall below detection threshold.
+A negative result is never phrased as exclusion: small, low-contrast or
+out-of-scope abnormalities can fall below the segmentation threshold.
 `test_report_on_a_negative_study_does_not_claim_exclusion` pins this.
 
-The differential (neurocysticercosis, pyogenic or fungal abscess, metastasis,
-demyelination) is named explicitly whenever lesions are found.
+Reports written by the NeuroTB-era generator (text version 1) carried a
+rule-based "TB pattern score" and TB-worded impressions. `normalize_report`
+regenerates their text from their own stored measurements whenever they are
+served; nothing in the database is rewritten.

@@ -7,7 +7,7 @@ const FEATURES = [
   {
     icon: ShieldCheck,
     title: 'AI-Powered Detection',
-    body: 'Identifies tumors, lesions and other anomalies with high accuracy.',
+    body: 'Highlights regions of abnormal signal for the doctor to review.',
   },
   {
     icon: Box,
@@ -42,8 +42,8 @@ export default function FeatureSummary() {
             Key Features at Each Step
           </h2>
           <p className="mt-3 max-w-[38ch] text-[14px] leading-relaxed text-ink-soft">
-            A complete workflow designed for accurate detection, better understanding, and improved
-            patient outcomes.
+            A complete workflow from upload to a reviewed report, with every AI finding checked by
+            a doctor.
           </p>
         </motion.div>
 

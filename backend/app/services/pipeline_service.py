@@ -25,8 +25,10 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -47,6 +49,10 @@ from ..pipeline.volume import Volume, load_volume, save_mask, save_volume
 logger = logging.getLogger(__name__)
 
 
+class AnalysisInputError(ValueError):
+    """A problem with the scan itself. The message is written for the doctor."""
+
+
 @dataclass
 class AnalysisArtifacts:
     directory: Path
@@ -59,6 +65,21 @@ class AnalysisArtifacts:
     duration_seconds: float
 
 
+# Pipeline stages in execution order. `run_analysis` reports each one as it
+# starts, and the worker writes it to Analysis.stage, which is what the
+# processing screen shows. Keys are stable API values; labels are for humans.
+STAGES: list[tuple[str, str]] = [
+    ("validating", "Validating scan"),
+    ("preprocessing", "Preprocessing MRI"),
+    ("segmenting", "Running AI model and segmenting"),
+    ("measuring", "Calculating measurements"),
+    ("saving", "Saving segmentation volumes"),
+    ("mesh", "Generating 3D visualization"),
+    ("slices", "Rendering MRI slices"),
+    ("report", "Preparing report"),
+]
+
+
 def analysis_dir(analysis_id: int) -> Path:
     return settings.derived_dir / f"analysis_{analysis_id}"
 
@@ -68,38 +89,50 @@ def run_analysis(
     sequence: str,
     analysis_id: int,
     threshold: float | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> AnalysisArtifacts:
-    """Full single-study pipeline. Raises on unrecoverable input problems."""
+    """Full single-study pipeline. Raises on unrecoverable input problems.
+
+    `progress(stage_key)` is called as each stage in STAGES begins.
+    """
+    report_stage = progress or (lambda _stage: None)
     started = time.perf_counter()
     threshold = settings.segmentation_threshold if threshold is None else threshold
 
     out_dir = analysis_dir(analysis_id)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    report_stage("validating")
     volume = load_volume(study_path, sequence=sequence)
     original_shape = volume.shape
     original_spacing = [round(float(s), 3) for s in volume.spacing]
 
+    report_stage("preprocessing")
     processed, brain_mask = preprocess.preprocess(volume)
     if not brain_mask.any():
-        raise ValueError(
+        raise AnalysisInputError(
             "Brain extraction produced an empty mask. The upload may not be a brain MRI, "
             "or may be too heavily corrupted to process."
         )
 
+    report_stage("segmenting")
     seg = segmentation.segment(
         processed, brain_mask, checkpoint=settings.active_checkpoint, threshold=threshold
     )
+    report_stage("measuring")
     lesions, burden = quantify.quantify(processed, seg.mask, seg.probability, brain_mask)
 
+    report_stage("saving")
     save_volume(processed, out_dir / "preprocessed.nii.gz")
     save_mask(brain_mask, processed.affine, out_dir / "brain_mask.nii.gz")
     save_mask(seg.mask, processed.affine, out_dir / "lesion_mask.nii.gz")
     save_volume(processed.with_data(seg.probability), out_dir / "probability.nii.gz")
 
+    report_stage("mesh")
     scene = mesh.build_scene(brain_mask, seg.mask, processed.affine, lesions)
     (out_dir / "scene.json").write_text(json.dumps(scene), encoding="utf-8")
 
+    report_stage("slices")
     slice_manifest = slices.render_study_slices(
         processed, seg.probability, seg.mask, brain_mask, out_dir / "slices"
     )
@@ -109,10 +142,12 @@ def run_analysis(
         "original_spacing_mm": original_spacing,
         "processed_shape": list(processed.shape),
         "processed_spacing_mm": [round(float(s), 3) for s in processed.spacing],
-        "segmentation_threshold": threshold,
+        # The threshold the backend actually applied, not the one requested.
+        "segmentation_threshold": seg.threshold,
         "segmentation_notes": seg.notes,
     }
 
+    report_stage("report")
     built = report_mod.build_report(
         lesions=lesions,
         burden=burden,
@@ -136,6 +171,46 @@ def run_analysis(
         slices=slice_manifest,
         technique=technique,
         duration_seconds=round(duration, 2),
+    )
+
+
+@dataclass
+class SliceSource:
+    """The arrays needed to render any slice of one analysis."""
+    data: np.ndarray
+    probability: np.ndarray
+    mask: np.ndarray
+    axes: dict
+    spacing: list
+
+
+def slice_source(analysis_id: int) -> SliceSource:
+    """Load an analysis's derived volumes once, for on-demand slice rendering.
+
+    Reading and decompressing three NIfTIs takes about a second, and a doctor
+    scrolling through slices asks for many in quick succession, so the last
+    two analyses viewed are kept in memory (~80 MB each at 1 mm isotropic).
+    Keyed by folder, not id, so a different data directory never hits the cache.
+    """
+    return _load_slice_source(str(analysis_dir(analysis_id)))
+
+
+@lru_cache(maxsize=2)
+def _load_slice_source(folder: str) -> SliceSource:
+    directory = Path(folder)
+    paths = [directory / name for name in ("preprocessed.nii.gz", "probability.nii.gz", "lesion_mask.nii.gz", "brain_mask.nii.gz")]
+    missing = [p.name for p in paths if not p.exists()]
+    if missing:
+        raise FileNotFoundError(f"Analysis volumes missing on disk: {', '.join(missing)}.")
+
+    volume = load_volume(paths[0])
+    brain = load_volume(paths[3]).data > 0.5
+    return SliceSource(
+        data=volume.data,
+        probability=load_volume(paths[1]).data,
+        mask=load_volume(paths[2]).data > 0.5,
+        axes=slices.plane_axes(volume.affine, brain),
+        spacing=[round(float(s), 3) for s in volume.spacing],
     )
 
 

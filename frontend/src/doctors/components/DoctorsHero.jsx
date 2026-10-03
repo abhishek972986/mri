@@ -24,7 +24,7 @@ export default function DoctorsHero({ onTryDemo, onWatchVideo }) {
       >
         <motion.p
           variants={fadeUp}
-          className="text-[12px] font-semibold uppercase tracking-[0.26em] text-[#5B8BD0]"
+          className="text-[12px] font-semibold uppercase tracking-[0.26em] text-[#3F6FB3]"
         >
           Built for Clinicians
         </motion.p>

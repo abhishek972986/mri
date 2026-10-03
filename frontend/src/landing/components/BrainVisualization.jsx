@@ -38,7 +38,7 @@ const CALLOUTS = [
   {
     tone: 'blush',
     title: 'Detected Lesion',
-    body: 'AI identifies abnormal regions with high accuracy.',
+    body: 'AI highlights regions of abnormal signal for review.',
     delay: 0.5,
     absolute: 'left-0 top-[3%] w-[46%] max-w-[230px]',
   },

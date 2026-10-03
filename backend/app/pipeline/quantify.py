@@ -33,7 +33,6 @@ class Lesion:
     region: str = "unspecified"
     side: str = "unspecified"
     lobe: str = "unspecified"
-    tb_typical_site: bool = False
     normalized_coords: str = ""
 
     def to_dict(self) -> dict:
@@ -110,7 +109,6 @@ def quantify(
                 region=location["region"],
                 side=location["side"],
                 lobe=location["lobe"],
-                tb_typical_site=atlas.is_tb_typical_site(location["region"]),
                 normalized_coords=location["normalized_coords"],
             )
         )
@@ -188,8 +186,8 @@ def _max_diameter_mm(coords: np.ndarray, spacing: np.ndarray) -> float:
 def _sphericity(component: np.ndarray, volume_mm3: float, spacing: np.ndarray) -> float:
     """Ratio of the equivalent-sphere surface area to the actual surface area.
 
-    1.0 is a perfect sphere. Tuberculomas tend to be roundish; a very low value
-    suggests a confluent or infiltrative process, which is worth surfacing.
+    1.0 is a perfect sphere. A very low value means an irregular, confluent or
+    elongated region, which is worth surfacing as a shape measurement.
     """
     eroded = ndimage.binary_erosion(component, structure=np.ones((3, 3, 3)))
     surface_voxels = int(np.count_nonzero(component & ~eroded))

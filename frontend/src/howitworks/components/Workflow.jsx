@@ -28,7 +28,7 @@ const STEPS = [
     tone: 'rose',
     title: 'Detection & Segmentation',
     description:
-      'AI identifies and highlights abnormal regions such as tumors, lesions, or other anomalies.',
+      'AI outlines regions of abnormal signal and measures them. It does not determine what they are.',
     Visual: DetectionStep,
   },
   {
@@ -36,7 +36,7 @@ const STEPS = [
     tone: 'violet',
     title: '3D Visualization',
     description:
-      'View the detected regions in an interactive 3D brain model with accurate localization.',
+      'View the segmented regions in an interactive 3D brain model with approximate anatomical labels.',
     Visual: VisualizationStep,
   },
   {

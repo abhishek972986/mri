@@ -18,14 +18,14 @@ export default {
       },
       colors: {
         brand: {
-          DEFAULT: '#1677E8',
+          DEFAULT: '#136BD0', // 5.2:1 on white: passes WCAG AA as text
           deep: '#0B4FC4',
           soft: '#EAF1FE',
         },
         ink: {
           DEFAULT: '#0D1424',
           soft: '#5B6B85',
-          faint: '#8B9AB3',
+          faint: '#627089', // 4.7:1 on the page background (AA)
         },
         mint: {
           DEFAULT: '#12A97C',

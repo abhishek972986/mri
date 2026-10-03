@@ -13,7 +13,7 @@ export default function HowItWorksHero() {
     >
       <motion.p
         variants={fadeUp}
-        className="text-[11.5px] font-semibold uppercase tracking-[0.32em] text-[#5B7BA6]"
+        className="text-[11.5px] font-semibold uppercase tracking-[0.32em] text-[#4F6D96]"
       >
         How It Works
       </motion.p>
@@ -29,8 +29,8 @@ export default function HowItWorksHero() {
         variants={fadeUp}
         className="mx-auto mt-4 max-w-[660px] text-[15px] leading-relaxed text-ink-soft sm:text-[15.5px]"
       >
-        NeuroVision AI combines advanced AI with interactive 3D visualization to analyze brain MRI
-        scans and help doctors make faster, more accurate decisions.
+        NeuroVision AI combines AI segmentation with interactive 3D visualization to analyze brain
+        MRI scans and support the doctor&apos;s review.
       </motion.p>
     </motion.header>
   );

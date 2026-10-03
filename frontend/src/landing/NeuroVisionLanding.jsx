@@ -6,6 +6,7 @@ import Navbar from './components/Navbar';
 import FeaturesSection from '../features/FeaturesSection';
 import HowItWorksSection from '../howitworks/HowItWorksSection';
 import ForDoctorsSection from '../doctors/ForDoctorsSection';
+import AboutSection from '../about/AboutSection';
 import { useSmoothScroll } from './useSmoothScroll';
 import './landing.css';
 
@@ -44,6 +45,7 @@ export default function NeuroVisionLanding({ onEnterApp, videoSrc }) {
       ['features', 'Features'],
       ['how-it-works', 'How It Works'],
       ['for-doctors', 'For Doctors'],
+      ['about', 'About'],
     ]
       .map(([id, label]) => [document.getElementById(id), label])
       .filter(([node]) => node);
@@ -103,6 +105,8 @@ export default function NeuroVisionLanding({ onEnterApp, videoSrc }) {
         <HowItWorksSection />
 
         <ForDoctorsSection onEnterApp={onEnterApp} />
+
+        <AboutSection />
       </main>
     </div>
     </MotionConfig>

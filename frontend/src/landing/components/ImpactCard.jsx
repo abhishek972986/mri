@@ -6,8 +6,8 @@ import { fadeUp, hoverLift, stagger } from '../motion';
 const IMPACTS = [
   {
     icon: Target,
-    title: 'Higher Accuracy',
-    body: 'Detect brain abnormalities with AI-assisted analysis.',
+    title: 'Consistent Measurement',
+    body: 'Segmented volumes and dimensions, measured the same way on every scan.',
   },
   {
     icon: Zap,
@@ -21,8 +21,8 @@ const IMPACTS = [
   },
   {
     icon: Heart,
-    title: 'Better Patient Outcomes',
-    body: 'Support earlier and more informed treatment decisions.',
+    title: 'Longitudinal Tracking',
+    body: 'Compare scans over time, region by region, after registration.',
   },
 ];
 

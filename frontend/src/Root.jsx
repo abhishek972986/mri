@@ -1,78 +1,86 @@
-import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect } from 'react';
+import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import NeuroVisionLanding from './landing/NeuroVisionLanding';
+import { AuthProvider } from './clinic/auth';
+import { ToastProvider } from './clinic/toast';
 
 /*
- * The dashboard is loaded on demand. It pulls in three.js and the whole
- * viewer stack, and the landing page is what nearly every visitor sees first
- * — statically importing it here put that entire cost on their first paint,
- * including for people who never open the dashboard at all.
- */
-const App = lazy(() => import('./App'));
-
-/**
- * Two surfaces in one bundle: the marketing landing page and the clinical
- * dashboard. Routing is the URL hash rather than a router dependency — there
- * are exactly two routes and adding react-router for them would be the larger
- * change.
+ * Two experiences in one bundle:
  *
- * The two pages have opposite palettes, and the dashboard's stylesheet sets a
- * dark `body` background globally, so the route also owns a class on <body>.
+ *   Public site      /  /features  /how-it-works  /for-doctors  /about
+ *   Clinical app     /login  and everything under /app (signed-in doctors only)
+ *
+ * The clinical app is loaded on demand. It pulls in three.js and the viewer
+ * stack, and the landing page is what nearly every visitor sees first.
  */
+const ClinicApp = lazy(() => import('./clinic/ClinicApp'));
+const LoginPage = lazy(() => import('./clinic/pages/LoginPage'));
 
-/* Landing-page sections that a hash can point at. */
-const ANCHORS = new Set(['features', 'how-it-works', 'for-doctors']);
+/* The public "pages" are sections of the one landing page. */
+const SECTION_FOR_PATH = {
+  '/features': 'features',
+  '/how-it-works': 'how-it-works',
+  '/for-doctors': 'for-doctors',
+  '/about': 'about',
+};
 
-/*
- * Only the dashboard is a route. Features is a section of the landing page,
- * so `#features` and `#how-it-works` (and the older `#/features`) resolve to
- * home and are handled as anchors below.
- */
-function currentRoute() {
-  return window.location.hash.replace(/^#\/?/, '') === 'app' ? 'app' : 'home';
+function Landing() {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    document.body.classList.add('route-home');
+    return () => document.body.classList.remove('route-home');
+  }, []);
+
+  // Scroll to the section a path names, once it has rendered.
+  useEffect(() => {
+    const id = SECTION_FOR_PATH[pathname] ?? window.location.hash.replace(/^#\/?/, '');
+    if (!id) return undefined;
+    const frame = requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: 'auto', block: 'start' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pathname]);
+
+  const enterApp = useCallback(() => {
+    navigate('/app');
+    window.scrollTo(0, 0);
+  }, [navigate]);
+
+  return <NeuroVisionLanding onEnterApp={enterApp} />;
+}
+
+/** Auth and toasts exist only for the clinical side; the landing page never calls /auth/me. */
+function ClinicalProviders() {
+  return (
+    <AuthProvider>
+      <ToastProvider>
+        <Suspense fallback={<div className="app-loading">Loading…</div>}>
+          <Outlet />
+        </Suspense>
+      </ToastProvider>
+    </AuthProvider>
+  );
 }
 
 export default function Root() {
-  const [route, setRoute] = useState(currentRoute);
+  const { hash } = useLocation();
 
-  useEffect(() => {
-    const onHashChange = () => setRoute(currentRoute());
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
-  }, []);
+  // Links from before the router existed used "#/app".
+  if (hash === '#/app') return <Navigate to="/app" replace />;
 
-  useEffect(() => {
-    document.body.classList.toggle('route-home', route !== 'app');
-    document.body.classList.toggle('route-app', route === 'app');
-  }, [route]);
-
-  /*
-   * Anchor handling for the landing page. The browser's own jump-to-id fires
-   * before React has rendered the section, so links arriving with a features
-   * hash — including the `#/features` the page used to be routed at — are
-   * scrolled here instead, once the element exists.
-   */
-  useEffect(() => {
-    if (route !== 'home') return undefined;
-    const hash = window.location.hash.replace(/^#\/?/, '');
-    if (!ANCHORS.has(hash)) return undefined;
-
-    const id = requestAnimationFrame(() => {
-      document.getElementById(hash)?.scrollIntoView({ behavior: 'auto', block: 'start' });
-    });
-    return () => cancelAnimationFrame(id);
-  }, [route]);
-
-  const enterApp = useCallback(() => {
-    window.location.hash = '#/app';
-    window.scrollTo(0, 0);
-  }, []);
-
-  if (route === 'app') {
-    return (
-      <Suspense fallback={<div className="app-loading">Loading…</div>}>
-        <App onExitToHome={() => { window.location.hash = '#/'; }} />
-      </Suspense>
-    );
-  }
-  return <NeuroVisionLanding onEnterApp={enterApp} />;
+  return (
+    <Routes>
+      <Route path="/" element={<Landing />} />
+      {Object.keys(SECTION_FOR_PATH).map((path) => (
+        <Route key={path} path={path} element={<Landing />} />
+      ))}
+      <Route element={<ClinicalProviders />}>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/app/*" element={<ClinicApp />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
 }

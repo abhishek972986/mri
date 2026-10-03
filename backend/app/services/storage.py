@@ -94,7 +94,11 @@ def _inspect_volume(path: Path) -> dict:
         shape = tuple(int(s) for s in img.shape)
         zooms = tuple(float(z) for z in img.header.get_zooms()[:3])
     except Exception as exc:
-        raise UploadError(f"File is not a readable NIfTI volume: {exc}") from exc
+        # The library's message can include the server-side path; keep it out
+        # of the response.
+        raise UploadError(
+            "File is not a readable NIfTI volume. It may be corrupted, truncated, or not a NIfTI file."
+        ) from exc
 
     if len(shape) < 3:
         raise UploadError(f"Expected a 3D volume, got shape {shape}.")
@@ -132,3 +136,43 @@ def delete_artifacts(*paths: str | Path | None) -> None:
                 target.unlink(missing_ok=True)
         except OSError:
             pass
+
+
+# --- profile photos ------------------------------------------------------------
+
+_PHOTO_MAX_EDGE = 512
+
+
+def store_photo(file_obj, subdir: str) -> str:
+    """Validate and store a profile photo; returns the stored path.
+
+    The upload is decoded with Pillow and re-encoded as a fresh JPEG, which both
+    proves it is an image and drops any metadata it carried (camera EXIF can
+    hold GPS coordinates). The client's filename never touches the disk.
+    """
+    from PIL import Image, UnidentifiedImageError
+
+    max_bytes = settings.max_photo_mb * 1024 * 1024
+    raw = file_obj.read(max_bytes + 1)
+    if len(raw) > max_bytes:
+        raise UploadError(f"Photo exceeds the {settings.max_photo_mb} MB limit.")
+    if not raw:
+        raise UploadError("The photo file is empty.")
+
+    import io
+
+    try:
+        image = Image.open(io.BytesIO(raw))
+        image.load()
+    except (UnidentifiedImageError, OSError) as exc:
+        raise UploadError("The photo is not a readable image (use JPEG, PNG or WebP).") from exc
+
+    image = image.convert("RGB")
+    image.thumbnail((_PHOTO_MAX_EDGE, _PHOTO_MAX_EDGE))
+
+    settings.ensure_dirs()
+    folder = settings.photos_dir / subdir
+    folder.mkdir(parents=True, exist_ok=True)
+    destination = folder / f"{uuid.uuid4().hex}.jpg"
+    image.save(destination, format="JPEG", quality=88, optimize=True)
+    return str(destination)

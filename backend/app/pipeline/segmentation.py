@@ -47,6 +47,13 @@ CONTRAST_SD = 1.6
 # cost it carries near the cortex.
 DETECTION_MARGIN_MM = 5.0
 
+# Stored with every classical-fallback analysis (technique.segmentation_notes).
+CLASSICAL_NOTE = (
+    "Classical blob detector, not a trained model. It flags focal hyperintense "
+    "foci of plausible size and cannot tell one kind of focal lesion from "
+    "another. Train a model and pass a checkpoint for real use."
+)
+
 # Shape priors for the classical detector's component filter.
 MAX_LESION_DIAMETER_MM = 40.0
 MIN_FILL_FRACTION = 0.22
@@ -162,10 +169,9 @@ def _segment_unet(
         )
     if provenance["pathology"]:
         notes.append(f"Model trained on: {provenance['pathology']}")
-    if provenance["not_tuberculosis"]:
         notes.append(
-            "These weights have never seen a tuberculoma. They segment focal "
-            "brain lesions learned from a different disease."
+            "The model segments focal signal abnormality learned from that dataset; "
+            "it does not identify what a segmented region is."
         )
 
     return SegmentationOutput(
@@ -338,9 +344,7 @@ def _segment_classical(vol: Volume, brain_mask: np.ndarray, threshold: float) ->
         model_confidence=confidence,
         calibrated=False,
         notes=[
-            "Classical blob detector, not a trained diagnostic model. It flags focal "
-            "hyperintense foci of plausible size and cannot distinguish tuberculomas "
-            "from other focal lesions. Train a model and pass a checkpoint for real use.",
+            CLASSICAL_NOTE,
             f"Detection restricted to voxels more than {DETECTION_MARGIN_MM:.0f} mm inside "
             "the brain surface; superficial and juxtacortical lesions will be missed.",
         ],

@@ -41,8 +41,21 @@ export function useSmoothScroll(enabled) {
 
       e.preventDefault();
       const margin = parseFloat(getComputedStyle(target).scrollMarginTop) || 0;
-      const top = target.id === 'top' ? 0 : target.getBoundingClientRect().top + window.scrollY - margin;
-      lenis.scrollTo(top, { duration: 1.1 });
+      const destination = () => (target.id === 'top' ? 0 : target.getBoundingClientRect().top + window.scrollY - margin);
+      /* Sections above the target can still be growing on a fresh load, which
+         moves the target after the glide starts and leaves Lenis's cached page
+         height (it clamps to it) stale. Re-measure on arrival and correct. */
+      const glide = (attempt) => {
+        lenis.resize();
+        lenis.scrollTo(destination(), {
+          duration: attempt ? 0.5 : 1.1,
+          force: true,
+          onComplete: () => {
+            if (attempt < 3 && Math.abs(destination() - window.scrollY) > 4) glide(attempt + 1);
+          },
+        });
+      };
+      glide(0);
       /* Keep the address bar in step without firing hashchange (Root routes on it). */
       history.pushState(null, '', hash);
     };

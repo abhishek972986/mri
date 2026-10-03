@@ -178,7 +178,58 @@ def _colormap(values: np.ndarray) -> np.ndarray:
     return out
 
 
+LAYERS = ("image", "overlay", "mask", "heatmap")
+
+
+def plane_axes(affine: np.ndarray, brain_mask: np.ndarray) -> dict[str, int]:
+    """Which array axis each display plane cuts across, from the affine."""
+    from .atlas import build_frame
+    frame = build_frame(affine, brain_mask)
+    return {
+        "axial": frame.axis_of["z"],
+        "coronal": frame.axis_of["y"],
+        "sagittal": frame.axis_of["x"],
+    }
+
+
+def render_slice(
+    data: np.ndarray,
+    probability: np.ndarray,
+    mask: np.ndarray,
+    axis: int,
+    index: int,
+    layer: str,
+) -> bytes:
+    """Render any single slice on demand, as PNG bytes.
+
+    Uses exactly the windowing and overlays of `render_study_slices`, so a
+    slice fetched this way looks identical to the pre-rendered set. `mask` is
+    the raw segmentation: the binary model output in red on black, with no
+    anatomy under it.
+    """
+    if layer not in LAYERS:
+        raise ValueError(f"Unknown layer '{layer}'.")
+    grey = _window(_take(data, axis, index))
+    if layer == "image":
+        rgb = _to_rgb(grey)
+    elif layer == "overlay":
+        rgb = _overlay_contour(grey, _take(mask, axis, index))
+    elif layer == "heatmap":
+        rgb = _overlay_heatmap(grey, _take(probability, axis, index))
+    else:
+        seg = _take(mask, axis, index).astype(bool)
+        rgb = np.zeros(seg.shape + (3,), dtype=np.uint8)
+        rgb[seg] = (255, 82, 82)
+    return encode_png(rgb)
+
+
 def _write_png(path: Path, rgb: np.ndarray) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(encode_png(rgb))
+    return path
+
+
+def encode_png(rgb: np.ndarray) -> bytes:
     """Minimal PNG encoder (8-bit RGB, no interlace)."""
     height, width = rgb.shape[:2]
     raw = b"".join(
@@ -190,12 +241,9 @@ def _write_png(path: Path, rgb: np.ndarray) -> Path:
         return struct.pack(">I", len(payload)) + body + struct.pack(">I", zlib.crc32(body))
 
     header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
-    png = (
+    return (
         b"\x89PNG\r\n\x1a\n"
         + chunk(b"IHDR", header)
         + chunk(b"IDAT", zlib.compress(raw, 6))
         + chunk(b"IEND", b"")
     )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(png)
-    return path

@@ -1,12 +1,18 @@
 import { motion } from 'framer-motion';
-import { BarChart3, Box, Heart, Zap } from 'lucide-react';
+import { BarChart3, Box, ClipboardCheck, Ruler } from 'lucide-react';
 import { fadeUp, hoverLiftSm, stagger } from '../../landing/motion';
 
+/*
+ * Facts the project can back: the model's own validation figure (read from
+ * the checkpoint, and only for the glioma cases it was validated on), the
+ * pipeline's measurement grid, and the workflow. No accuracy or speed-up
+ * claim appears here that the evidence does not support.
+ */
 const METRICS = [
-  { icon: BarChart3, value: '90%+', label: 'Detection Accuracy', tone: 'bg-[#E3EEFD] text-[#1F6FE0]' },
-  { icon: Zap, value: '10x', label: 'Faster Analysis', tone: 'bg-[#E3EEFD] text-[#1F6FE0]' },
+  { icon: BarChart3, value: '0.80', label: 'Validation Dice · BraTS glioma', tone: 'bg-[#E3EEFD] text-[#1F6FE0]' },
+  { icon: Ruler, value: '1 mm', label: 'Isotropic measurement grid', tone: 'bg-[#E3EEFD] text-[#1F6FE0]' },
   { icon: Box, value: '3D', label: 'Interactive Visualization', tone: 'bg-[#E4EFFB] text-[#3B82C4]' },
-  { icon: Heart, value: 'Better', label: 'Patient Outcomes', tone: 'bg-[#E0F4EA] text-[#12A06F]' },
+  { icon: ClipboardCheck, value: 'Every', label: 'Report reviewed by a clinician', tone: 'bg-[#E0F4EA] text-[#12A06F]' },
 ];
 
 /** The closing band of figures under the feature section. */

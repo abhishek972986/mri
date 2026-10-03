@@ -101,7 +101,6 @@ def build_scene(
             "volume_cm3": lesion.volume_cm3,
             "max_diameter_mm": lesion.max_diameter_mm,
             "mean_probability": lesion.mean_probability,
-            "tb_typical_site": lesion.tb_typical_site,
             "centroid": [round(float(c), 2) for c in centroid],
             "mesh": surface,
         })

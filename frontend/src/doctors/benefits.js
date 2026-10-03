@@ -10,8 +10,8 @@ import { Brain, FileText, TrendingUp, Zap } from 'lucide-react';
 export const BENEFITS = [
   {
     icon: Zap,
-    title: 'Faster, More Confident Decisions',
-    body: 'Get AI-assisted analysis and clear visualizations to identify critical findings quickly.',
+    title: 'A Clearer Starting Point for Review',
+    body: 'AI-assisted segmentation and clear visualizations bring regions of abnormal signal to your attention.',
     icons: 'bg-[#E8F1FE] text-[#1677E8]',
     rule: 'bg-[#1677E8]',
     tint: 'group-hover:bg-[#F5F9FF]',
@@ -35,7 +35,7 @@ export const BENEFITS = [
   {
     icon: TrendingUp,
     title: 'Track Progress Over Time',
-    body: 'Compare multiple scans to analyze changes and monitor treatment response.',
+    body: 'Compare scans over time to measure how segmented regions change.',
     icons: 'bg-[#FDE8EC] text-[#E14A6B]',
     rule: 'bg-[#E14A6B]',
     tint: 'group-hover:bg-[#FEF6F8]',
